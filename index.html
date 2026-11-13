@@ -1413,7 +1413,7 @@ async function carregarEncomenda(silencioso = false) {
 
     renderTabela();
 
-    const temPedidos = dados.length > 0;
+    const temPedidos = linhas.some(linha => !linha.removed && somarLinha(linha) > 0);
     document.getElementById("tableCard").style.display = temPedidos ? "" : "none";
     document.getElementById("emptyState").style.display = temPedidos ? "none" : "";
     if (!temPedidos) {
@@ -1441,7 +1441,7 @@ async function carregarEncomenda(silencioso = false) {
     if (!silencioso) {
       showAlert(
         temPedidos
-          ? "Encomenda atualizada: " + dados.length + " artigos com pedido. Os zeros e campos vazios foram excluídos."
+          ? "Encomenda atualizada: " + linhas.filter(linha => !linha.removed && somarLinha(linha) > 0).length + " artigos com pedido. Os zeros e campos vazios foram excluídos."
           : "Consulta concluída. Não há artigos com quantidade final superior a zero.",
         temPedidos ? "ok" : "warn"
       );
