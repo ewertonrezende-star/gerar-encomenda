@@ -729,6 +729,9 @@ table.encomenda .orig {
       <button class="btn btn-primary" id="btnCarregar" onclick="carregarEncomenda()" disabled>
         ↻ Atualizar Encomenda
       </button>
+      <button class="btn btn-outline" id="btnGravar" onclick="gravarEncomenda()" disabled>
+        💾 Gravar Encomenda
+      </button>
       <button class="btn btn-outline" onclick="abrirModalArtigo()" id="btnAdd" disabled>
         + Adicionar Artigo
       </button>
@@ -752,6 +755,7 @@ table.encomenda .orig {
         <div>
           <h3 id="tableTitle">Encomenda para Fornecedor</h3>
           <div class="meta" id="tableMeta">—</div>
+          <div class="meta" id="saveStatus" style="margin-top:4px;color:#1f6b33">Ainda não existe uma encomenda gravada para este fornecedor.</div>
         </div>
         <div class="meta" id="tableTotais">Total: <strong>0</strong> un.</div>
       </div>
@@ -999,6 +1003,7 @@ let fornecedorKey = "";
 let linhas = [];
 let perfil = null;
 let mapaAtual = null;
+let utilizadorId = null;
 const mapasCache = { geral: null, cereais: null };
 const CODIGOS_LOJAS = [
   { short: "AL", key: "albarraque" },
@@ -1064,6 +1069,7 @@ async function init() {
     }
 
     perfil = data;
+    utilizadorId = user.id;
     document.getElementById("userChip").textContent = data.nome || "Central / Compras";
     await popularFornecedores();
 
@@ -1187,6 +1193,7 @@ function selecionarCategoria(cat) {
   });
 
   document.getElementById("btnCarregar").disabled = true;
+  document.getElementById("btnGravar").disabled = true;
   document.getElementById("btnAdd").disabled = true;
   document.getElementById("btnPreview").disabled = true;
   document.getElementById("btnPdf").disabled = true;
@@ -1202,6 +1209,7 @@ function selecionarCategoria(cat) {
 function onFornecedorChange() {
   fornecedorKey = document.getElementById("selFornecedor").value;
   document.getElementById("btnCarregar").disabled = !fornecedorKey;
+  document.getElementById("btnGravar").disabled = true;
   document.getElementById("btnAdd").disabled = true;
   document.getElementById("btnPreview").disabled = true;
   document.getElementById("btnPdf").disabled = true;
@@ -1235,10 +1243,103 @@ function somarLinha(linha) {
 
 function temEdicoesManuais() {
   return linhas.some(linha =>
-    linha.manual || LOJAS.some(loja =>
+    linha.removed || linha.manual || LOJAS.some(loja =>
       (Number(linha.final[loja.key]) || 0) !== (Number(linha.orig[loja.key]) || 0)
     )
   );
+}
+
+function chaveEncomendaSalva() {
+  return categoria + "::" + fornecedorKey;
+}
+
+async function obterEncomendaSalva() {
+  if (!fornecedorKey) return null;
+  const { data, error } = await sb.from("encomendas_salvas")
+    .select("linhas, updated_at, atualizado_por")
+    .eq("chave", chaveEncomendaSalva())
+    .maybeSingle();
+  if (error) {
+    console.warn("Não foi possível consultar o rascunho guardado:", error.message);
+    return null;
+  }
+  return data || null;
+}
+
+function aplicarEncomendaSalva(dadosBase, dadosSalvos) {
+  if (!Array.isArray(dadosSalvos) || !dadosSalvos.length) return dadosBase;
+
+  const zero = { central: 0, albarraque: 0, arneiro: 0, colares: 0, memmartins: 0, sabugo: 0, sintra: 0 };
+  const basePorCodigo = new Map(dadosBase.map(l => [String(l.codigo), l]));
+  const codigosSalvos = new Set();
+
+  const restauradas = dadosSalvos.map(salva => {
+    const codigo = String(salva.codigo || "").trim();
+    if (!codigo) return null;
+    codigosSalvos.add(codigo);
+    const base = basePorCodigo.get(codigo);
+    return {
+      codigo,
+      artigo: salva.artigo || (base && base.artigo) || "Artigo sem descrição",
+      orig: base ? { ...base.orig } : { ...zero },
+      final: { ...zero, ...(salva.final || {}) },
+      removed: Boolean(salva.removed),
+      manual: Boolean(salva.manual)
+    };
+  }).filter(Boolean);
+
+  // Artigos novos que chegaram das lojas depois do último gravamento são acrescentados.
+  dadosBase.forEach(linha => {
+    if (!codigosSalvos.has(String(linha.codigo))) restauradas.push(linha);
+  });
+
+  return restauradas.sort((a, b) =>
+    a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
+  );
+}
+
+async function gravarEncomenda() {
+  if (!fornecedorKey || !linhas.length) {
+    showAlert("Atualize uma encomenda antes de a gravar.", "warn");
+    return;
+  }
+
+  const botao = document.getElementById("btnGravar");
+  botao.disabled = true;
+  botao.textContent = "A gravar…";
+
+  try {
+    const agora = new Date().toISOString();
+    const payload = {
+      chave: chaveEncomendaSalva(),
+      categoria,
+      fornecedor_key: fornecedorKey,
+      fornecedor_label: obterMetaFornecedor(categoria, fornecedorKey).label || fornecedorKey,
+      linhas: linhas.map(linha => ({
+        codigo: linha.codigo,
+        artigo: linha.artigo,
+        orig: linha.orig,
+        final: linha.final,
+        removed: Boolean(linha.removed),
+        manual: Boolean(linha.manual)
+      })),
+      atualizado_por: (perfil && perfil.nome) || "Gestão",
+      updated_at: agora
+    };
+
+    const { error } = await sb.from("encomendas_salvas").upsert(payload, { onConflict: "chave" });
+    if (error) throw error;
+
+    const estado = document.getElementById("saveStatus");
+    if (estado) estado.textContent = "Guardado em " + new Date(agora).toLocaleString("pt-PT");
+    showAlert("Encomenda gravada. O próximo gravamento substituirá esta versão.", "ok");
+  } catch (e) {
+    console.error("Erro ao gravar encomenda:", e);
+    showAlert("Não foi possível gravar. Confirme se a tabela encomendas_salvas já foi criada no Supabase. " + (e.message || ""), "warn");
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "💾 Gravar Encomenda";
+  }
 }
 
 /* ============================================================
@@ -1289,7 +1390,7 @@ async function carregarEncomenda(silencioso = false) {
       });
     });
 
-    const dados = Array.from(artigos.values())
+    const dadosBase = Array.from(artigos.values())
       .filter(linha => somarLinha(linha) > 0)
       .map(linha => {
         if (!linha.artigo) linha.artigo = "Artigo sem descrição";
@@ -1297,7 +1398,19 @@ async function carregarEncomenda(silencioso = false) {
       })
       .sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }));
 
-    linhas = dados;
+    const encomendaSalva = await obterEncomendaSalva();
+    linhas = encomendaSalva
+      ? aplicarEncomendaSalva(dadosBase, encomendaSalva.linhas)
+      : dadosBase;
+
+    const estadoGravacao = document.getElementById("saveStatus");
+    if (estadoGravacao) {
+      estadoGravacao.textContent = encomendaSalva
+        ? "Rascunho recuperado · " + new Date(encomendaSalva.updated_at).toLocaleString("pt-PT") +
+          (encomendaSalva.atualizado_por ? " · " + encomendaSalva.atualizado_por : "")
+        : "Ainda não existe uma encomenda gravada para este fornecedor.";
+    }
+
     renderTabela();
 
     const temPedidos = dados.length > 0;
@@ -1309,6 +1422,7 @@ async function carregarEncomenda(silencioso = false) {
     }
 
     document.getElementById("btnAdd").disabled = false;
+    document.getElementById("btnGravar").disabled = linhas.length === 0;
     document.getElementById("btnPreview").disabled = !temPedidos;
     document.getElementById("btnPdf").disabled = !temPedidos;
     document.getElementById("btnPrint").disabled = !temPedidos;
@@ -1392,6 +1506,7 @@ function renderTabela() {
     "Total: <strong>" + (totalGeral > 0 ? totalGeral : "") + "</strong> un.";
 
   const temPedidos = linhas.some(linha => !linha.removed && somarLinha(linha) > 0);
+  document.getElementById("btnGravar").disabled = linhas.length === 0;
   document.getElementById("btnPreview").disabled = !temPedidos;
   document.getElementById("btnPdf").disabled = !temPedidos;
   document.getElementById("btnPrint").disabled = !temPedidos;
