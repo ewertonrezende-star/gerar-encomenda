@@ -929,10 +929,8 @@ const FORNECEDORES = {
       contacto: ""
     }
   },
-  geral: {
-    fornecedor_a: { label: "Fornecedor A (demo)", codigo: "", emails: [], morada: "", contacto: "" },
-    fornecedor_b: { label: "Fornecedor B (demo)", codigo: "", emails: [], morada: "", contacto: "" }
-  }
+  geral: {}
+
 };
 
 /* Moradas das lojas (versão atualizada – nota de encomenda) */
@@ -995,79 +993,170 @@ const LOJAS_INFO = [
   }
 ];
 
-/* Dados demonstrativos (Avenal) – baseados no mockup da imagem.
-   Em produção estes valores vêm da agregação dos mapas submetidos pelas lojas. */
-const DEMO_DATA = {
-  avenal: [
-    { codigo: "81100417", artigo: "Avenal cat peixe 18kg",  central:0, albarraque:0, arneiro:0, colares:5,  memmartins:15, sabugo:2, sintra:5 },
-    { codigo: "81100603", artigo: "Avenal cat salmao 2kg",  central:0, albarraque:0, arneiro:0, colares:0,  memmartins:0,  sabugo:2, sintra:0 },
-    { codigo: "81100820", artigo: "Avenal cat peixe 4 kg",  central:0, albarraque:0, arneiro:6, colares:10, memmartins:10, sabugo:10,sintra:5 },
-    { codigo: "81100822", artigo: "Avenal cat carne 2kg",   central:0, albarraque:0, arneiro:6, colares:0,  memmartins:4,  sabugo:0, sintra:0 },
-    { codigo: "81100823", artigo: "Avenal dog salmao e arroz 15kg", central:0, albarraque:0, arneiro:0, colares:9, memmartins:2, sabugo:6, sintra:0 },
-    { codigo: "81100825", artigo: "Avenal dog borrego e arroz 15kg",central:0, albarraque:0, arneiro:3, colares:6, memmartins:2, sabugo:6, sintra:0 },
-    { codigo: "81100445", artigo: "Avenal cat baby 2kg",    central:0, albarraque:0, arneiro:0, colares:0,  memmartins:2,  sabugo:0, sintra:0 },
-    { codigo: "81100501", artigo: "Avenal cat esterilizado 2kg", central:0, albarraque:0, arneiro:0, colares:6, memmartins:2, sabugo:0, sintra:0 }
-  ]
-};
-
 /* Estado */
 let categoria = "cereais";
 let fornecedorKey = "";
-let linhas = [];          // { codigo, artigo, orig:{}, final:{}, removed }
+let linhas = [];
 let perfil = null;
+let mapaAtual = null;
+const mapasCache = { geral: null, cereais: null };
+const CODIGOS_LOJAS = [
+  { short: "AL", key: "albarraque" },
+  { short: "AM", key: "arneiro" },
+  { short: "CO", key: "colares" },
+  { short: "MM", key: "memmartins" },
+  { short: "SA", key: "sabugo" },
+  { short: "LC", key: "sintra" }
+];
 
 /* ============================================================
-   INICIALIZAÇÃO
+   INICIALIZAÇÃO E ACESSO
    ============================================================ */
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-async function init() {
-  // Tenta obter perfil (se já autenticado no portal)
-  try {
-    const { data: { user } } = await sb.auth.getUser();
-    if (user) {
-      const { data } = await sb.from("portal_perfis").select("nome, perfil, loja").eq("user_id", user.id).maybeSingle();
-      if (data) {
-        perfil = data;
-        document.getElementById("userChip").textContent = data.nome || "Gestão";
-        // Segurança: só gestão pode usar este módulo
-        if (data.perfil !== "gestao") {
-          document.body.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f2a17;color:#fff;font-family:system-ui;text-align:center;padding:24px">
-              <div>
-                <h1 style="margin-bottom:12px">Acesso restrito</h1>
-                <p>O módulo <strong>Gerar Encomenda</strong> está disponível apenas para utilizadores de Gestão (Central/Compras).</p>
-                <p style="margin-top:16px;opacity:.7">As lojas não têm acesso a esta funcionalidade.</p>
-                <a href="https://ewertonrezende-star.github.io/portalcoop/" style="display:inline-block;margin-top:24px;padding:10px 20px;background:#1f6b33;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Voltar ao Portal</a>
-              </div>
-            </div>`;
-          return;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Auth check (demo mode):", e.message);
-  }
-
-  popularFornecedores();
-  // Pré-selecionar Avenal para demo
-  document.getElementById("selFornecedor").value = "avenal";
-  fornecedorKey = "avenal";
-  document.getElementById("btnCarregar").disabled = false;
-  showAlert("Modo demonstração: dados de exemplo do fornecedor Avenal (mockup). Em produção os valores serão lidos dos mapas submetidos pelas lojas.", "info");
+function normalizarTexto(v) {
+  return String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
-function popularFornecedores() {
-  const sel = document.getElementById("selFornecedor");
-  const lista = FORNECEDORES[categoria] || {};
-  sel.innerHTML = '<option value="">— Selecionar —</option>';
-  Object.keys(lista).forEach(k => {
-    const opt = document.createElement("option");
-    opt.value = k;
-    const f = lista[k];
-    opt.textContent = (f.codigo ? f.codigo + " – " : "") + f.label;
-    sel.appendChild(opt);
+function acessoNegado(mensagem) {
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0f2a17;color:#fff;font-family:system-ui;text-align:center;padding:24px">
+      <div>
+        <h1 style="margin-bottom:12px">Acesso restrito</h1>
+        <p>${esc(mensagem || "Este módulo está disponível apenas para Nuno e Ewerton na Central / Compras.")}</p>
+        <a href="https://ewertonrezende-star.github.io/portalcoop/" style="display:inline-block;margin-top:24px;padding:10px 20px;background:#1f6b33;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Voltar ao Portal</a>
+      </div>
+    </div>`;
+}
+
+async function init() {
+  try {
+    const { data: { user }, error: authError } = await sb.auth.getUser();
+    if (authError || !user) {
+      acessoNegado("Entre primeiro no Portal COOPSINTRA e escolha Central / Compras.");
+      return;
+    }
+
+    const origem = new URLSearchParams(window.location.search).get("origem");
+    if (origem !== "central") {
+      acessoNegado("Abra o módulo através de Central / Compras no Portal COOPSINTRA.");
+      return;
+    }
+
+    const { data, error } = await sb.from("portal_perfis")
+      .select("nome, perfil, loja")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error || !data || data.perfil !== "gestao") {
+      acessoNegado("As lojas não têm acesso à funcionalidade Gerar Encomenda.");
+      return;
+    }
+
+    const nomeNormalizado = normalizarTexto(data.nome);
+    const utilizadorAutorizado =
+      nomeNormalizado.startsWith("nuno") ||
+      nomeNormalizado.startsWith("ewerton");
+
+    if (!utilizadorAutorizado) {
+      acessoNegado("O módulo Gerar Encomenda está autorizado apenas para Nuno e Ewerton.");
+      return;
+    }
+
+    perfil = data;
+    document.getElementById("userChip").textContent = data.nome || "Central / Compras";
+    await popularFornecedores();
+
+    // Atualização automática: verifica se as lojas gravaram novos pedidos.
+    window.setInterval(async () => {
+      if (document.visibilityState !== "visible" || !fornecedorKey) return;
+      if (temEdicoesManuais()) return;
+      await carregarEncomenda(true);
+    }, 45000);
+
+  } catch (e) {
+    console.error("Falha na inicialização do módulo:", e);
+    acessoNegado("Não foi possível validar a sessão. Volte ao Portal e entre novamente.");
+  }
+}
+
+async function obterMapaMaisRecente(cat, forcar = false) {
+  if (!forcar && mapasCache[cat]) return mapasCache[cat];
+
+  const tabela = cat === "geral" ? "mapas_geral" : "mapas_stock";
+  const { data, error } = await sb.from(tabela)
+    .select("id, fornecedor, lojas, created_at, updated_at")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error("Não foi possível consultar " + tabela + ": " + error.message);
+  if (!data || !data.lojas) throw new Error("Ainda não existe um mapa disponível em " + tabela + ".");
+
+  mapasCache[cat] = data;
+  return data;
+}
+
+function obterMetaFornecedor(cat, chave) {
+  const lista = FORNECEDORES[cat] || {};
+  if (lista[chave]) return lista[chave];
+
+  const chaveNormalizada = normalizarTexto(chave);
+  for (const [k, f] of Object.entries(lista)) {
+    if (normalizarTexto(k) === chaveNormalizada ||
+        normalizarTexto(f.label) === chaveNormalizada) return f;
+  }
+
+  return { label: chave, codigo: "", emails: [], morada: "", contacto: "" };
+}
+
+function listarFornecedoresDoMapa(cat, mapa) {
+  const encontrados = new Map();
+
+  Object.values(mapa.lojas || {}).forEach(loja => {
+    const respostas = loja && loja.respostas && typeof loja.respostas === "object"
+      ? loja.respostas : {};
+    Object.keys(respostas).forEach(chave => {
+      if (!encontrados.has(chave)) {
+        const meta = obterMetaFornecedor(cat, chave);
+        encontrados.set(chave, { key: chave, label: meta.label || chave, meta });
+      }
+    });
   });
+
+  return Array.from(encontrados.values()).sort((a, b) =>
+    a.label.localeCompare(b.label, "pt-PT", { sensitivity: "base" })
+  );
+}
+
+async function popularFornecedores() {
+  const sel = document.getElementById("selFornecedor");
+  sel.innerHTML = '<option value="">A carregar fornecedores…</option>';
+  sel.disabled = true;
+
+  try {
+    const mapa = await obterMapaMaisRecente(categoria, true);
+    const fornecedores = listarFornecedoresDoMapa(categoria, mapa);
+    sel.innerHTML = '<option value="">— Selecionar —</option>';
+
+    fornecedores.forEach(item => {
+      const opt = document.createElement("option");
+      opt.value = item.key;
+      opt.textContent = (item.meta.codigo ? item.meta.codigo + " – " : "") + item.label;
+      sel.appendChild(opt);
+    });
+
+    sel.disabled = false;
+    if (!fornecedores.length) {
+      showAlert("O mapa mais recente ainda não contém respostas de fornecedores.", "warn");
+    } else {
+      showAlert("Fornecedores carregados do mapa mais recente.", "info");
+    }
+  } catch (e) {
+    sel.innerHTML = '<option value="">— Sem fornecedores disponíveis —</option>';
+    sel.disabled = true;
+    showAlert(e.message || "Erro ao carregar fornecedores.", "warn");
+  }
 }
 
 /* ============================================================
@@ -1075,96 +1164,165 @@ function popularFornecedores() {
    ============================================================ */
 function selecionarCategoria(cat) {
   categoria = cat;
+  fornecedorKey = "";
+  linhas = [];
+  mapaAtual = null;
+
   document.getElementById("cardGeral").classList.toggle("selected", cat === "geral");
   document.getElementById("cardCereais").classList.toggle("selected", cat === "cereais");
   document.querySelectorAll(".nav .sub").forEach(b => {
     b.classList.toggle("active", b.dataset.cat === cat);
   });
-  popularFornecedores();
-  fornecedorKey = "";
+
   document.getElementById("btnCarregar").disabled = true;
   document.getElementById("btnAdd").disabled = true;
   document.getElementById("btnPreview").disabled = true;
   document.getElementById("btnPdf").disabled = true;
   document.getElementById("btnPrint").disabled = true;
+  document.getElementById("btnEmail").disabled = true;
   document.getElementById("tableCard").style.display = "none";
   document.getElementById("emptyState").style.display = "";
-  linhas = [];
+  document.getElementById("emptyState").querySelector("p").innerHTML =
+    'Selecione o fornecedor e clique em <strong>Atualizar Encomenda</strong>.';
+  popularFornecedores();
 }
 
 function onFornecedorChange() {
   fornecedorKey = document.getElementById("selFornecedor").value;
   document.getElementById("btnCarregar").disabled = !fornecedorKey;
-  if (!fornecedorKey) {
-    document.getElementById("tableCard").style.display = "none";
-    document.getElementById("emptyState").style.display = "";
-  }
+  document.getElementById("btnAdd").disabled = true;
+  document.getElementById("btnPreview").disabled = true;
+  document.getElementById("btnPdf").disabled = true;
+  document.getElementById("btnPrint").disabled = true;
+  document.getElementById("btnEmail").disabled = true;
+  document.getElementById("tableCard").style.display = "none";
+  document.getElementById("emptyState").style.display = "";
 }
 
 /* ============================================================
-   CARREGAR / AGREGAR
+   UTILITÁRIOS DE LEITURA DOS MAPAS
    ============================================================ */
-async function carregarEncomenda() {
+function quantidadeFinal(valor) {
+  if (valor === null || valor === undefined) return null;
+  const texto = String(valor).trim();
+  if (!texto || texto === "—" || texto === "-" || texto.toLowerCase() === "null") return null;
+  const numero = Number(texto.replace(",", "."));
+  return Number.isFinite(numero) ? Math.max(0, numero) : null;
+}
+
+function descricaoDoArtigo(lojaData, codigo) {
+  const desc = lojaData && lojaData.descVendas && lojaData.descVendas[codigo];
+  if (typeof desc === "string") return desc;
+  if (desc && typeof desc === "object") return desc.descricao || desc.desc || desc.nome || "";
+  return "";
+}
+
+function somarLinha(linha) {
+  return LOJAS.reduce((soma, loja) => soma + (Number(linha.final[loja.key]) || 0), 0);
+}
+
+function temEdicoesManuais() {
+  return linhas.some(linha =>
+    LOJAS.some(loja =>
+      (Number(linha.final[loja.key]) || 0) !== (Number(linha.orig[loja.key]) || 0)
+    )
+  );
+}
+
+/* ============================================================
+   CARREGAR / AGREGAR PEDIDOS REAIS
+   ============================================================ */
+async function carregarEncomenda(silencioso = false) {
   if (!fornecedorKey) return;
 
-  showAlert("A agregar pedidos das lojas…", "info");
+  try {
+    if (!silencioso) showAlert("A consultar o mapa mais recente e agregar os pedidos das lojas…", "info");
 
-  // Em produção: consultar mapas_stock / mapas_geral no Supabase
-  // e somar quantidades por código × loja para o fornecedor selecionado.
-  // Por agora usamos dados de demonstração (Avenal do mockup).
+    const mapa = await obterMapaMaisRecente(categoria, true);
+    mapaAtual = mapa;
 
-  let dados = [];
-  if (categoria === "cereais" && fornecedorKey === "avenal" && DEMO_DATA.avenal) {
-    dados = DEMO_DATA.avenal.map(d => ({
-      codigo: d.codigo,
-      artigo: d.artigo,
-      orig: {
-        central: d.central || 0,
-        albarraque: d.albarraque || 0,
-        arneiro: d.arneiro || 0,
-        colares: d.colares || 0,
-        memmartins: d.memmartins || 0,
-        sabugo: d.sabugo || 0,
-        sintra: d.sintra || 0
-      },
-      final: {
-        central: d.central || 0,
-        albarraque: d.albarraque || 0,
-        arneiro: d.arneiro || 0,
-        colares: d.colares || 0,
-        memmartins: d.memmartins || 0,
-        sabugo: d.sabugo || 0,
-        sintra: d.sintra || 0
-      },
-      removed: false
-    }));
-  } else {
-    // Placeholder vazio para outros fornecedores (integração real a seguir)
-    dados = [];
-    showAlert("Integração com mapas ainda em preparação para este fornecedor. Use Avenal (demo) ou adicione artigos manualmente.", "warn");
-  }
+    const artigos = new Map();
 
-  // Ordenar por código
-  dados.sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }));
+    CODIGOS_LOJAS.forEach(lojaRef => {
+      const lojaData = mapa.lojas && mapa.lojas[lojaRef.short];
+      if (!lojaData) return;
 
-  linhas = dados;
-  renderTabela();
-  document.getElementById("tableCard").style.display = "";
-  document.getElementById("emptyState").style.display = "none";
-  document.getElementById("btnAdd").disabled = false;
-  document.getElementById("btnPreview").disabled = false;
-  document.getElementById("btnPdf").disabled = false;
-  document.getElementById("btnPrint").disabled = false;
-  document.getElementById("btnEmail").disabled = false;
+      const respostas = lojaData.respostas && typeof lojaData.respostas === "object"
+        ? lojaData.respostas : {};
+      const resposta = respostas[fornecedorKey];
+      if (!resposta || !Array.isArray(resposta.rows)) return;
 
-  const forn = FORNECEDORES[categoria][fornecedorKey];
-  document.getElementById("tableTitle").textContent = "Encomenda para " + (forn ? forn.label : fornecedorKey);
-  document.getElementById("tableMeta").textContent =
-    "Fornecedor: " + (forn && forn.codigo ? forn.codigo + " – " : "") + (forn ? forn.label : "") +
-    " · Data Encomenda: " + new Date().toLocaleDateString("pt-PT");
+      resposta.rows.forEach(item => {
+        const codigo = String(item.c || "").trim();
+        if (!codigo) return;
 
-  if (dados.length) {
-    showAlert("Encomenda carregada com " + dados.length + " artigos (dados de demonstração). Pode editar quantidades antes de gerar o PDF.", "ok");
+        const qtd = quantidadeFinal(item.final);
+        if (qtd === null) return;
+        if (!artigos.has(codigo)) {
+          artigos.set(codigo, {
+            codigo,
+            artigo: descricaoDoArtigo(lojaData, codigo),
+            orig: { central: 0, albarraque: 0, arneiro: 0, colares: 0, memmartins: 0, sabugo: 0, sintra: 0 },
+            final: { central: 0, albarraque: 0, arneiro: 0, colares: 0, memmartins: 0, sabugo: 0, sintra: 0 },
+            removed: false
+          });
+        }
+
+        const linha = artigos.get(codigo);
+        if (!linha.artigo) linha.artigo = descricaoDoArtigo(lojaData, codigo);
+        if (qtd > 0) {
+          linha.orig[lojaRef.key] += qtd;
+          linha.final[lojaRef.key] += qtd;
+        }
+      });
+    });
+
+    const dados = Array.from(artigos.values())
+      .filter(linha => somarLinha(linha) > 0)
+      .map(linha => {
+        if (!linha.artigo) linha.artigo = "Artigo sem descrição";
+        return linha;
+      })
+      .sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }));
+
+    linhas = dados;
+    renderTabela();
+
+    const temPedidos = dados.length > 0;
+    document.getElementById("tableCard").style.display = temPedidos ? "" : "none";
+    document.getElementById("emptyState").style.display = temPedidos ? "none" : "";
+    if (!temPedidos) {
+      document.getElementById("emptyState").querySelector("p").innerHTML =
+        'Ainda não existem quantidades positivas registadas para este fornecedor no mapa atual.';
+    }
+
+    document.getElementById("btnAdd").disabled = false;
+    document.getElementById("btnPreview").disabled = !temPedidos;
+    document.getElementById("btnPdf").disabled = !temPedidos;
+    document.getElementById("btnPrint").disabled = !temPedidos;
+
+    const forn = obterMetaFornecedor(categoria, fornecedorKey);
+    document.getElementById("btnEmail").disabled = !temPedidos || !(forn.emails && forn.emails.length);
+    document.getElementById("tableTitle").textContent = "Encomenda para " + (forn.label || fornecedorKey);
+
+    const dataMapa = mapa.created_at ? new Date(mapa.created_at).toLocaleString("pt-PT") : "—";
+    document.getElementById("tableMeta").textContent =
+      "Fornecedor: " + (forn.codigo ? forn.codigo + " – " : "") +
+      (forn.label || fornecedorKey) +
+      " · Mapa: " + mapa.id +
+      " · Atualizado: " + dataMapa;
+
+    if (!silencioso) {
+      showAlert(
+        temPedidos
+          ? "Encomenda atualizada: " + dados.length + " artigos com pedido. Os zeros e campos vazios foram excluídos."
+          : "Consulta concluída. Não há artigos com quantidade final superior a zero.",
+        temPedidos ? "ok" : "warn"
+      );
+    }
+  } catch (e) {
+    console.error(e);
+    if (!silencioso) showAlert(e.message || "Não foi possível carregar a encomenda.", "warn");
   }
 }
 
@@ -1179,9 +1337,11 @@ function renderTabela() {
 
   linhas.forEach((linha, idx) => {
     if (linha.removed) return;
+    const rowTotal = somarLinha(linha);
+    if (rowTotal <= 0 && !linha.manual) return;
+
     nLinhas++;
     const tr = document.createElement("tr");
-    let rowTotal = 0;
     let hasChange = false;
 
     const cells = [
@@ -1190,22 +1350,22 @@ function renderTabela() {
     ];
 
     LOJAS.forEach(loja => {
-      const orig = linha.orig[loja.key] || 0;
-      const fin  = linha.final[loja.key] || 0;
-      rowTotal += fin;
+      const orig = Number(linha.orig[loja.key]) || 0;
+      const fin = Number(linha.final[loja.key]) || 0;
       if (fin !== orig) hasChange = true;
       const changedClass = fin !== orig ? "changed" : "";
       cells.push(`
         <td>
-          <input type="number" class="qty ${changedClass}" min="0" value="${fin}"
+          <input type="number" class="qty ${changedClass}" min="0" step="1"
+            value="${fin > 0 ? fin : ""}"
             data-idx="${idx}" data-loja="${loja.key}"
-            onchange="atualizarQty(this)" oninput="atualizarQty(this)">
-          ${fin !== orig ? `<span class="orig">orig: ${orig}</span>` : ""}
+            onchange="atualizarQty(this)">
+          ${fin !== orig && orig > 0 ? `<span class="orig">orig: ${orig}</span>` : ""}
         </td>
       `);
     });
 
-    cells.push(`<td class="total-col" id="tot-${idx}">${rowTotal}</td>`);
+    cells.push(`<td class="total-col" id="tot-${idx}">${rowTotal > 0 ? rowTotal : ""}</td>`);
     cells.push(`<td><button class="btn btn-danger btn-sm" onclick="removerLinha(${idx})" title="Excluir">✕</button></td>`);
 
     tr.innerHTML = cells.join("");
@@ -1215,38 +1375,17 @@ function renderTabela() {
   });
 
   document.getElementById("nLinhas").textContent = nLinhas;
-  document.getElementById("totalGeral").textContent = totalGeral;
-  document.getElementById("tableTotais").innerHTML = "Total: <strong>" + totalGeral + "</strong> un.";
+  document.getElementById("totalGeral").textContent = totalGeral > 0 ? totalGeral : "";
+  document.getElementById("tableTotais").innerHTML =
+    "Total: <strong>" + (totalGeral > 0 ? totalGeral : "") + "</strong> un.";
 }
 
 function atualizarQty(input) {
-  const idx = +input.dataset.idx;
+  const idx = Number(input.dataset.idx);
   const loja = input.dataset.loja;
-  const val = Math.max(0, parseInt(input.value, 10) || 0);
+  const val = Math.max(0, Number.parseInt(input.value, 10) || 0);
   linhas[idx].final[loja] = val;
-  input.value = val;
-
-  // Atualizar total da linha e geral
-  let rowTotal = 0;
-  LOJAS.forEach(l => { rowTotal += (linhas[idx].final[l.key] || 0); });
-  const totCell = document.getElementById("tot-" + idx);
-  if (totCell) totCell.textContent = rowTotal;
-
-  // Marcar alteração
-  const orig = linhas[idx].orig[loja] || 0;
-  input.classList.toggle("changed", val !== orig);
-  const tr = input.closest("tr");
-  const anyChange = LOJAS.some(l => (linhas[idx].final[l.key] || 0) !== (linhas[idx].orig[l.key] || 0));
-  tr.classList.toggle("edited", anyChange);
-
-  // Recalcular total geral
-  let totalGeral = 0;
-  linhas.forEach(l => {
-    if (l.removed) return;
-    LOJAS.forEach(loja => { totalGeral += (l.final[loja.key] || 0); });
-  });
-  document.getElementById("totalGeral").textContent = totalGeral;
-  document.getElementById("tableTotais").innerHTML = "Total: <strong>" + totalGeral + "</strong> un.";
+  renderTabela();
 }
 
 function removerLinha(idx) {
@@ -1256,6 +1395,8 @@ function removerLinha(idx) {
 }
 
 /* ============================================================
+   ADICIONAR ARTIGO
+   ============================================================/* ============================================================
    ADICIONAR ARTIGO
    ============================================================ */
 function abrirModalArtigo() {
@@ -1279,7 +1420,8 @@ function confirmarArtigo() {
     codigo, artigo,
     orig: { ...zero },
     final: { ...zero },
-    removed: false
+    removed: false,
+    manual: true
   });
   linhas.sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }));
   fecharModalArtigo();
@@ -1295,7 +1437,7 @@ function construirDocumentoHTML() {
   const dataHora = new Date().toLocaleString("pt-PT");
 
   let totalGeral = 0;
-  const rowsHtml = linhas.filter(l => !l.removed).map(l => {
+  const rowsHtml = linhas.filter(l => !l.removed && somarLinha(l) > 0).map(l => {
     let rowTot = 0;
     const qtds = LOJAS.map(loja => {
       const v = l.final[loja.key] || 0;
@@ -1462,7 +1604,7 @@ function pedirConfirmacaoEmail() {
     showAlert("Este fornecedor ainda não tem e-mail configurado.", "warn");
     return;
   }
-  if (!linhas.filter(l => !l.removed).length) {
+  if (!linhas.filter(l => !l.removed && somarLinha(l) > 0).length) {
     showAlert("Não há artigos na encomenda para enviar.", "warn");
     return;
   }
@@ -1500,7 +1642,7 @@ async function confirmarEnvioEmail() {
     let totalUnidades = 0;
     let nArtigos = 0;
     linhas.forEach(l => {
-      if (l.removed) return;
+      if (l.removed || somarLinha(l) <= 0) return;
       nArtigos++;
       LOJAS.forEach(loja => { totalUnidades += (l.final[loja.key] || 0); });
     });
