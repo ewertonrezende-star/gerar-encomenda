@@ -1332,12 +1332,32 @@ function aplicarEncomendaSalva(dadosBase, dadosSalvos) {
     const codigo = String(salva.codigo || "").trim();
     if (!codigo) return null;
     codigosSalvos.add(codigo);
+
     const base = basePorCodigo.get(codigo);
+    const origSalvo = salva.orig || {};
+    const finalSalvo = salva.final || {};
+    const finalAtual = { ...zero };
+
+    // Só mantém a quantidade antiga quando ela foi realmente alterada
+    // em relação ao mapa que existia na altura em que o rascunho foi gravado.
+    // Se não houve edição, acompanha a quantidade do mapa mais recente.
+    LOJAS.forEach(loja => {
+      const key = loja.key;
+      const valorSalvo = Number(finalSalvo[key]) || 0;
+      const originalSalva = Number(origSalvo[key]) || 0;
+      const foiEditado = Object.prototype.hasOwnProperty.call(origSalvo, key)
+        && valorSalvo !== originalSalva;
+
+      finalAtual[key] = foiEditado
+        ? valorSalvo
+        : (base ? (Number(base.final[key]) || 0) : valorSalvo);
+    });
+
     return {
       codigo,
       artigo: salva.artigo || (base && base.artigo) || "Artigo sem descrição",
       orig: base ? { ...base.orig } : { ...zero },
-      final: { ...zero, ...(salva.final || {}) },
+      final: finalAtual,
       removed: Boolean(salva.removed),
       manual: Boolean(salva.manual)
     };
