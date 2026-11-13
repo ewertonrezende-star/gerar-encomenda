@@ -1071,7 +1071,8 @@ async function init() {
     window.setInterval(async () => {
       if (document.visibilityState !== "visible" || !fornecedorKey) return;
       if (temEdicoesManuais()) return;
-      await carregarEncomenda(true);
+      await popularFornecedores(true);
+      if (fornecedorKey) await carregarEncomenda(true);
     }, 45000);
 
   } catch (e) {
@@ -1129,7 +1130,8 @@ function listarFornecedoresDoMapa(cat, mapa) {
   );
 }
 
-async function popularFornecedores() {
+async function popularFornecedores(preservarSelecao = false) {
+  const selecaoAnterior = preservarSelecao ? fornecedorKey : "";
   const sel = document.getElementById("selFornecedor");
   sel.innerHTML = '<option value="">A carregar fornecedores…</option>';
   sel.disabled = true;
@@ -1147,14 +1149,23 @@ async function popularFornecedores() {
     });
 
     sel.disabled = false;
+    if (selecaoAnterior && fornecedores.some(item => item.key === selecaoAnterior)) {
+      sel.value = selecaoAnterior;
+      fornecedorKey = selecaoAnterior;
+    } else if (preservarSelecao) {
+      sel.value = "";
+      fornecedorKey = "";
+    }
+
     if (!fornecedores.length) {
       showAlert("O mapa mais recente ainda não contém respostas de fornecedores.", "warn");
-    } else {
+    } else if (!preservarSelecao) {
       showAlert("Fornecedores carregados do mapa mais recente.", "info");
     }
   } catch (e) {
     sel.innerHTML = '<option value="">— Sem fornecedores disponíveis —</option>';
     sel.disabled = true;
+    fornecedorKey = "";
     showAlert(e.message || "Erro ao carregar fornecedores.", "warn");
   }
 }
