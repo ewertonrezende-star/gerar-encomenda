@@ -1087,6 +1087,7 @@ async function obterMapaMaisRecente(cat, forcar = false) {
   const tabela = cat === "geral" ? "mapas_geral" : "mapas_stock";
   const { data, error } = await sb.from(tabela)
     .select("id, fornecedor, lojas, created_at, updated_at")
+    .order("updated_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
