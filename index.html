@@ -1234,7 +1234,7 @@ function somarLinha(linha) {
 
 function temEdicoesManuais() {
   return linhas.some(linha =>
-    LOJAS.some(loja =>
+    linha.manual || LOJAS.some(loja =>
       (Number(linha.final[loja.key]) || 0) !== (Number(linha.orig[loja.key]) || 0)
     )
   );
@@ -1389,6 +1389,14 @@ function renderTabela() {
   document.getElementById("totalGeral").textContent = totalGeral > 0 ? totalGeral : "";
   document.getElementById("tableTotais").innerHTML =
     "Total: <strong>" + (totalGeral > 0 ? totalGeral : "") + "</strong> un.";
+
+  const temPedidos = linhas.some(linha => !linha.removed && somarLinha(linha) > 0);
+  document.getElementById("btnPreview").disabled = !temPedidos;
+  document.getElementById("btnPdf").disabled = !temPedidos;
+  document.getElementById("btnPrint").disabled = !temPedidos;
+  const metaFornecedor = obterMetaFornecedor(categoria, fornecedorKey);
+  document.getElementById("btnEmail").disabled =
+    !temPedidos || !(metaFornecedor.emails && metaFornecedor.emails.length);
 }
 
 function atualizarQty(input) {
@@ -1437,6 +1445,10 @@ function confirmarArtigo() {
   linhas.sort((a, b) => a.codigo.localeCompare(b.codigo, undefined, { numeric: true }));
   fecharModalArtigo();
   renderTabela();
+  document.getElementById("tableCard").style.display = "";
+  document.getElementById("emptyState").style.display = "none";
+  const forn = obterMetaFornecedor(categoria, fornecedorKey);
+  document.getElementById("tableTitle").textContent = "Encomenda para " + (forn.label || fornecedorKey);
 }
 
 /* ============================================================
