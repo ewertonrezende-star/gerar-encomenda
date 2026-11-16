@@ -1930,7 +1930,7 @@ async function confirmarEnvioEmail() {
     const dataEnc = new Date().toLocaleDateString("pt-PT");
     const userNome = (perfil && perfil.nome) ? perfil.nome : "Gestão";
 
-    const { data, error } = await sb.functions.invoke("enviar-mapa", {
+    const { data, error } = await sb.functions.invoke("enviar-encomenda", {
       body: {
         lojaCode: "CENTRAL",
         lojaNome: "Central / Compras",
