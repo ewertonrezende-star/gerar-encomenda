@@ -867,8 +867,6 @@ table.encomenda .orig {
     <div class="preview-toolbar">
       <span>Pré-visualização da Encomenda</span>
       <div class="btns">
-        <button class="btn btn-primary btn-sm" onclick="gerarPDF()">📄 Gerar PDF</button>
-        <button class="btn btn-outline btn-sm" style="color:#fff;border-color:#fff" onclick="imprimirEncomenda()">🖨 Imprimir</button>
         <button class="btn btn-ghost btn-sm" style="color:#fff;border-color:rgba(255,255,255,.4)" onclick="fecharPreview()">✕ Fechar</button>
       </div>
     </div>
@@ -1757,20 +1755,22 @@ function construirDocumentoHTML() {
   `;
 }
 
+function prepararDocumentoEncomenda(abrir = true) {
+  const overlay = document.getElementById("previewOverlay");
+  const body = document.getElementById("docBody");
+
+  // Uma única fonte HTML para visualização, PDF, impressão e anexo do e-mail.
+  body.innerHTML = construirDocumentoHTML();
+  if (abrir) overlay.classList.add("show");
+
+  return { overlay, body };
+}
+
 function abrirPreview() {
-  document.getElementById("docBody").innerHTML = construirDocumentoHTML();
-  document.getElementById("previewOverlay").classList.add("show");
+  prepararDocumentoEncomenda(true);
 }
 function fecharPreview() {
   document.getElementById("previewOverlay").classList.remove("show");
-}
-
-function garantirPreviewEncomenda() {
-  const overlay = document.getElementById("previewOverlay");
-  const body = document.getElementById("docBody");
-  if (!body.innerHTML.trim()) body.innerHTML = construirDocumentoHTML();
-  overlay.classList.add("show");
-  return { overlay, body };
 }
 
 function esperarImagensDocumento(element) {
@@ -1784,28 +1784,15 @@ function esperarImagensDocumento(element) {
   }));
 }
 
-function imprimirEncomenda() {
-  // Imprime o mesmo HTML que o utilizador está a visualizar; não o reconstrói.
-  garantirPreviewEncomenda();
-  window.print();
+function esperarRenderDocumento() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 
-function criarDocumentoExportacao() {
-  const original = document.getElementById("docBody");
-  if (!original.innerHTML.trim()) original.innerHTML = construirDocumentoHTML();
-
-  // Usa a largura real da pré-visualização, sem impor uma largura fixa.
-  const largura = Math.ceil(original.getBoundingClientRect().width || original.scrollWidth || 920);
-
-  const wrapper = document.createElement("div");
-  wrapper.style.cssText = "position:absolute;left:0;top:0;width:" + largura + "px;background:#fff;z-index:99999;pointer-events:none;";
-
-  const clone = original.cloneNode(true);
-  clone.removeAttribute("id");
-  clone.style.cssText = "display:block;width:" + largura + "px;max-width:none;margin:0;padding:28px 32px 36px;box-sizing:border-box;background:#fff;font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#222;";
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-  return { wrapper, clone, largura };
+async function imprimirEncomenda() {
+  const { body } = prepararDocumentoEncomenda(true);
+  await esperarImagensDocumento(body);
+  await esperarRenderDocumento();
+  window.print();
 }
 
 function opcoesPDF(nome, largura) {
@@ -1829,43 +1816,43 @@ function opcoesPDF(nome, largura) {
 }
 
 async function gerarPDF() {
-  garantirPreviewEncomenda();
+  const { body } = prepararDocumentoEncomenda(true);
   const forn = obterMetaFornecedor(categoria, fornecedorKey);
   const nome = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-  showAlert("A gerar PDF no formato A4 horizontal…", "info");
+  showAlert("A gerar PDF conforme a visualização…", "info");
 
-  let exportacao;
   try {
-    exportacao = criarDocumentoExportacao();
-    await esperarImagensDocumento(exportacao.clone);
-    await html2pdf().set(opcoesPDF(nome, exportacao.largura)).from(exportacao.clone).save();
-    showAlert("PDF gerado em A4 horizontal.", "ok");
-    document.getElementById("modalPosPdf").classList.add("show");
+    await esperarImagensDocumento(body);
+    await esperarRenderDocumento();
+
+    const largura = Math.ceil(body.getBoundingClientRect().width || 920);
+    await html2pdf()
+      .set(opcoesPDF(nome, largura))
+      .from(body)
+      .save();
+
+    showAlert("PDF gerado com o mesmo modelo da visualização.", "ok");
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
     showAlert("Não foi possível gerar o PDF. Tente novamente.", "warn");
-  } finally {
-    if (exportacao) exportacao.wrapper.remove();
   }
 }
 
-function gerarPdfBase64() {
-  return new Promise(async (resolve, reject) => {
-    let exportacao;
-    const forn = obterMetaFornecedor(categoria, fornecedorKey);
-    const fileName = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-    try {
-      garantirPreviewEncomenda();
-      exportacao = criarDocumentoExportacao();
-      await esperarImagensDocumento(exportacao.clone);
-      const dataUri = await html2pdf().set(opcoesPDF(fileName, exportacao.largura)).from(exportacao.clone).outputPdf("datauristring");
-      resolve({ fileName, base64: dataUri.split(",")[1] || dataUri });
-    } catch (err) {
-      reject(err);
-    } finally {
-      if (exportacao) exportacao.wrapper.remove();
-    }
-  });
+async function gerarPdfBase64() {
+  const { body } = prepararDocumentoEncomenda(true);
+  const forn = obterMetaFornecedor(categoria, fornecedorKey);
+  const fileName = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
+
+  await esperarImagensDocumento(body);
+  await esperarRenderDocumento();
+
+  const largura = Math.ceil(body.getBoundingClientRect().width || 920);
+  const dataUri = await html2pdf()
+    .set(opcoesPDF(fileName, largura))
+    .from(body)
+    .outputPdf("datauristring");
+
+  return { fileName, base64: dataUri.split(",")[1] || dataUri };
 }
 
 function fecharModalPosPdf() {
@@ -1962,9 +1949,9 @@ async function confirmarEnvioEmail() {
     showAlert("Erro ao enviar e-mail: " + (e.message || e), "warn");
     alert(
       "Erro ao enviar e-mail:\n\n" + (e.message || e) +
-      "\n\nConfirme se a function «enviar-mapa» está publicada no Supabase " +
+      "\n\nConfirme se a function «enviar-encomenda» está publicada no Supabase " +
       "e se o campo «destino» aceita os e-mails do fornecedor.\n\n" +
-      "Pode descarregar o PDF com «Gerar PDF» e enviar manualmente."
+      "Pode gerar o PDF no ecrã principal e enviar manualmente."
     );
   } finally {
     if (btnEmail) {
