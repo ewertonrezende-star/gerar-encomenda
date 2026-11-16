@@ -1821,16 +1821,17 @@ function criarDocumentoExportacao() {
   const original = document.getElementById("docBody");
   if (!original.innerHTML.trim()) original.innerHTML = construirDocumentoHTML();
 
-  // Largura fixa proporcional ao A4 horizontal: evita capturar a largura
-  // variável do modal/monitor e gerar tabelas deslocadas ou cortadas.
-  const largura = 1080;
+  // Exporta com a mesma largura e o mesmo espaçamento da pré-visualização.
+  // Não redimensionar o conteúdo para 1080px: isso altera a grelha, as colunas
+  // e as quebras de linha em relação ao documento que o utilizador aprovou.
+  const largura = 920;
   const wrapper = document.createElement("div");
   wrapper.className = "pdf-export";
   wrapper.style.cssText = "position:absolute;left:0;top:0;width:" + largura + "px;background:#fff;z-index:99999;pointer-events:none;";
 
   const clone = original.cloneNode(true);
   clone.removeAttribute("id");
-  clone.style.cssText = "display:block;width:" + largura + "px;max-width:none;min-width:0;margin:0;padding:24px 26px;box-sizing:border-box;background:#fff;font-family:'Segoe UI',Arial,sans-serif;font-size:10px;color:#222;overflow:visible;";
+  clone.style.cssText = "display:block;width:" + largura + "px;max-width:none;min-width:0;margin:0;padding:28px 32px 36px;box-sizing:border-box;background:#fff;font-family:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:12px;color:#222;overflow:visible;";
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
   return { wrapper, clone, largura };
