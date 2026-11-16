@@ -639,12 +639,13 @@ table.encomenda .orig {
   .doc-meta { grid-template-columns: 1fr; }
 }
 
-/* Impressão baseada exatamente na pré-visualização apresentada no ecrã */
+/* Impressão: coloca apenas a pré-visualização no fluxo de impressão */
 @page { size: A4 landscape; margin: 5mm; }
 @media print {
   html, body {
     display: block !important;
     width: auto !important;
+    min-width: 0 !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -653,13 +654,16 @@ table.encomenda .orig {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  body * { visibility: hidden !important; }
-  #previewOverlay, #previewOverlay * { visibility: visible !important; }
+
+  /* Retira o restante portal do fluxo; visibility:hidden deixava páginas vazias. */
+  body > *:not(#previewOverlay) {
+    display: none !important;
+  }
   #previewOverlay {
     display: block !important;
     position: static !important;
     inset: auto !important;
-    width: auto !important;
+    width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
@@ -669,9 +673,10 @@ table.encomenda .orig {
   }
   #previewOverlay .preview-toolbar { display: none !important; }
   #previewOverlay .preview-doc {
+    display: block !important;
     width: 100% !important;
     max-width: none !important;
-    margin: 0 auto !important;
+    margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
     border: 0 !important;
@@ -680,16 +685,23 @@ table.encomenda .orig {
     transform: none !important;
   }
   #previewOverlay .doc-body {
+    display: block !important;
     width: 100% !important;
     max-width: none !important;
     box-sizing: border-box !important;
     margin: 0 !important;
-    padding: 28px 32px 36px !important;
-    font-size: 12px !important;
+    padding: 5mm !important;
+    font-size: 10px !important;
   }
   .doc-meta { grid-template-columns: 1fr 1fr !important; }
-  .doc-lojas { grid-template-columns: repeat(7, 1fr) !important; }
-  .doc-table { width: 100% !important; min-width: 0 !important; table-layout: fixed !important; font-size: 11px !important; }
+  .doc-lojas { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
+  .doc-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    font-size: 9px !important;
+    page-break-inside: auto !important;
+  }
   .doc-table th, .doc-table td { overflow-wrap: anywhere !important; }
   .doc-table th:nth-child(1), .doc-table td:nth-child(1) { width: 8% !important; }
   .doc-table th:nth-child(2), .doc-table td:nth-child(2) { width: 25% !important; }
@@ -698,7 +710,7 @@ table.encomenda .orig {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  .doc-table thead { display: table-header-group; }
+  .doc-table thead { display: table-header-group !important; }
   .doc-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
 }
 </style>
@@ -1786,7 +1798,7 @@ function criarDocumentoExportacao() {
   const largura = Math.ceil(original.getBoundingClientRect().width || original.scrollWidth || 920);
 
   const wrapper = document.createElement("div");
-  wrapper.style.cssText = "position:fixed;left:0;top:0;width:" + largura + "px;background:#fff;z-index:-1;pointer-events:none;";
+  wrapper.style.cssText = "position:absolute;left:0;top:0;width:" + largura + "px;background:#fff;z-index:99999;pointer-events:none;";
 
   const clone = original.cloneNode(true);
   clone.removeAttribute("id");
