@@ -735,6 +735,11 @@ table.encomenda .orig {
   .doc-table thead { display: table-header-group !important; }
   .doc-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
 }
+
+.doc-table { table-layout: fixed !important; width: 100% !important; }
+.doc-body { max-width: 100% !important; overflow: visible !important; }
+.preview-doc { max-width: 1100px !important; }
+
 </style>
 </head>
 <body>
@@ -1746,6 +1751,18 @@ function construirDocumentoHTML() {
     ${lojasInfo}
 
     <table class="doc-table">
+      <colgroup>
+        <col style="width:9%">
+        <col style="width:22%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:8%">
+        <col style="width:9%">
+      </colgroup>
       <thead>
         <tr>
           <th class="left">CÓDIGO</th>
@@ -1757,7 +1774,7 @@ function construirDocumentoHTML() {
           <th>MEM MARTINS</th>
           <th>SABUGO</th>
           <th>SINTRA</th>
-          <th>Total Unidades</th>
+          <th>Total</th>
         </tr>
       </thead>
       <tbody>
@@ -1817,69 +1834,57 @@ async function imprimirEncomenda() {
   window.print();
 }
 
-function criarDocumentoExportacao() {
-  const original = document.getElementById("docBody");
-  if (!original.innerHTML.trim()) original.innerHTML = construirDocumentoHTML();
-
-  // Exporta com a mesma largura e o mesmo espaçamento da pré-visualização.
-  // Não redimensionar o conteúdo para 1080px: isso altera a grelha, as colunas
-  // e as quebras de linha em relação ao documento que o utilizador aprovou.
-  const largura = 920;
-  const wrapper = document.createElement("div");
-  wrapper.className = "pdf-export";
-  wrapper.style.cssText = "position:absolute;left:0;top:0;width:" + largura + "px;background:#fff;z-index:99999;pointer-events:none;";
-
-  const clone = original.cloneNode(true);
-  clone.removeAttribute("id");
-  clone.style.cssText = "display:block;width:" + largura + "px;max-width:none;min-width:0;margin:0;padding:28px 32px 36px;box-sizing:border-box;background:#fff;font-family:'Segoe UI',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif;font-size:12px;color:#222;overflow:visible;";
-  wrapper.appendChild(clone);
-  document.body.appendChild(wrapper);
-  return { wrapper, clone, largura };
-}
-
-function opcoesPDF(nome, largura) {
+function opcoesPDF(nome) {
   return {
-    margin: [5, 5, 5, 5],
+    margin: [8, 8, 8, 8],
     filename: nome || "Encomenda_COOPSINTRA.pdf",
     image: { type: "jpeg", quality: 0.98 },
     html2canvas: {
       scale: 2,
       useCORS: true,
+      allowTaint: true,
       logging: false,
       backgroundColor: "#ffffff",
-      width: largura,
-      windowWidth: largura,
       scrollX: 0,
       scrollY: 0
     },
     jsPDF: { unit: "mm", format: "a4", orientation: "landscape", compress: true },
-    pagebreak: { mode: ["css", "legacy"], avoid: [".doc-header", ".doc-meta", ".doc-aviso", ".doc-lojas", ".doc-table tr", ".doc-footer"] }
+    pagebreak: {
+      mode: ["avoid-all", "css", "legacy"],
+      avoid: [".doc-header", ".doc-meta", ".doc-aviso", ".doc-lojas", ".doc-table tr", ".doc-footer"]
+    }
   };
 }
 
+/**
+ * PDF a partir da pré-visualização correcta (a que o utilizador já vê).
+ * Sem clone off-screen — evitava o corte à esquerda no PDF/e-mail.
+ */
 async function gerarPDF() {
   const { body } = prepararDocumentoEncomenda(true);
   const forn = obterMetaFornecedor(categoria, fornecedorKey);
   const nome = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
   showAlert("A gerar PDF A4 horizontal…", "info");
 
-  let exportacao;
+  const toolbar = document.querySelector("#previewOverlay .preview-toolbar");
   try {
     await esperarImagensDocumento(body);
     await esperarRenderDocumento();
-    exportacao = criarDocumentoExportacao();
-    await esperarImagensDocumento(exportacao.clone);
+    if (toolbar) toolbar.style.display = "none";
+
     await html2pdf()
-      .set(opcoesPDF(nome, exportacao.largura))
-      .from(exportacao.clone)
+      .set(opcoesPDF(nome))
+      .from(body)
       .save();
 
-    showAlert("PDF gerado em A4 horizontal, com margens e colunas ajustadas.", "ok");
+    showAlert("PDF gerado com o mesmo layout da pré-visualização.", "ok");
+    const modal = document.getElementById("modalPosPdf");
+    if (modal) modal.classList.add("show");
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
     showAlert("Não foi possível gerar o PDF. Tente novamente.", "warn");
   } finally {
-    if (exportacao) exportacao.wrapper.remove();
+    if (toolbar) toolbar.style.display = "";
   }
 }
 
@@ -1888,21 +1893,20 @@ async function gerarPdfBase64() {
   const forn = obterMetaFornecedor(categoria, fornecedorKey);
   const fileName = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
 
-  let exportacao;
+  const toolbar = document.querySelector("#previewOverlay .preview-toolbar");
   try {
     await esperarImagensDocumento(body);
     await esperarRenderDocumento();
-    exportacao = criarDocumentoExportacao();
-    await esperarImagensDocumento(exportacao.clone);
+    if (toolbar) toolbar.style.display = "none";
 
     const dataUri = await html2pdf()
-      .set(opcoesPDF(fileName, exportacao.largura))
-      .from(exportacao.clone)
+      .set(opcoesPDF(fileName))
+      .from(body)
       .outputPdf("datauristring");
 
     return { fileName, base64: dataUri.split(",")[1] || dataUri };
   } finally {
-    if (exportacao) exportacao.wrapper.remove();
+    if (toolbar) toolbar.style.display = "";
   }
 }
 
