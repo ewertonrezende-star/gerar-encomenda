@@ -669,8 +669,8 @@ table.encomenda .orig {
   }
   #previewOverlay .preview-toolbar { display: none !important; }
   #previewOverlay .preview-doc {
-    width: 1080px !important;
-    max-width: 1080px !important;
+    width: 100% !important;
+    max-width: none !important;
     margin: 0 auto !important;
     padding: 0 !important;
     overflow: visible !important;
@@ -680,8 +680,9 @@ table.encomenda .orig {
     transform: none !important;
   }
   #previewOverlay .doc-body {
-    width: 1080px !important;
-    max-width: 1080px !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
     margin: 0 !important;
     padding: 28px 32px 36px !important;
     font-size: 12px !important;
@@ -1782,7 +1783,7 @@ function criarDocumentoExportacao() {
   if (!original.innerHTML.trim()) original.innerHTML = construirDocumentoHTML();
 
   const wrapper = document.createElement("div");
-  wrapper.style.cssText = "position:fixed;left:-15000px;top:0;width:1080px;background:#fff;z-index:-1;";
+  wrapper.style.cssText = "position:fixed;left:0;top:0;width:1080px;background:#fff;z-index:-1;pointer-events:none;";
 
   const clone = original.cloneNode(true);
   clone.removeAttribute("id");
