@@ -690,22 +690,44 @@ table.encomenda .orig {
     max-width: none !important;
     box-sizing: border-box !important;
     margin: 0 !important;
-    padding: 5mm !important;
-    font-size: 10px !important;
+    padding: 4mm !important;
+    font-size: 9px !important;
   }
-  .doc-meta { grid-template-columns: 1fr 1fr !important; }
-  .doc-lojas { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
+  .doc-meta { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+  .doc-lojas {
+    display: grid !important;
+    width: 100% !important;
+    grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    margin-bottom: 10px !important;
+  }
+  .doc-lojas .loja-card { padding: 4px !important; font-size: 8px !important; }
+  .doc-lojas .loja-card strong { font-size: 8px !important; }
   .doc-table {
+    display: table !important;
     width: 100% !important;
     min-width: 0 !important;
+    max-width: 100% !important;
     table-layout: fixed !important;
-    font-size: 9px !important;
+    border-collapse: collapse !important;
+    font-size: 8px !important;
+    margin-bottom: 10px !important;
     page-break-inside: auto !important;
   }
-  .doc-table th, .doc-table td { overflow-wrap: anywhere !important; }
+  .doc-table th, .doc-table td {
+    box-sizing: border-box !important;
+    padding: 4px 2px !important;
+    overflow-wrap: break-word !important;
+    word-break: normal !important;
+    white-space: normal !important;
+  }
   .doc-table th:nth-child(1), .doc-table td:nth-child(1) { width: 8% !important; }
-  .doc-table th:nth-child(2), .doc-table td:nth-child(2) { width: 25% !important; }
-  .doc-table th:nth-child(n+3), .doc-table td:nth-child(n+3) { width: 7.44% !important; }
+  .doc-table th:nth-child(2), .doc-table td:nth-child(2) { width: 28% !important; }
+  .doc-table th:nth-child(n+3), .doc-table td:nth-child(n+3) { width: 8% !important; }
+  .doc-header { gap: 10px !important; margin-bottom: 10px !important; padding-bottom: 8px !important; }
+  .doc-meta { margin-bottom: 10px !important; }
+  .doc-aviso { margin-bottom: 7px !important; font-size: 8px !important; }
+  .doc-footer { margin-top: 10px !important; padding-top: 7px !important; }
   .doc-header, .doc-meta, .doc-aviso, .doc-lojas, .doc-footer {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
@@ -1795,6 +1817,25 @@ async function imprimirEncomenda() {
   window.print();
 }
 
+function criarDocumentoExportacao() {
+  const original = document.getElementById("docBody");
+  if (!original.innerHTML.trim()) original.innerHTML = construirDocumentoHTML();
+
+  // Largura fixa proporcional ao A4 horizontal: evita capturar a largura
+  // variável do modal/monitor e gerar tabelas deslocadas ou cortadas.
+  const largura = 1080;
+  const wrapper = document.createElement("div");
+  wrapper.className = "pdf-export";
+  wrapper.style.cssText = "position:absolute;left:0;top:0;width:" + largura + "px;background:#fff;z-index:-1;";
+
+  const clone = original.cloneNode(true);
+  clone.removeAttribute("id");
+  clone.style.cssText = "display:block;width:" + largura + "px;max-width:none;min-width:0;margin:0;padding:24px 26px;box-sizing:border-box;background:#fff;font-family:'Segoe UI',Arial,sans-serif;font-size:10px;color:#222;overflow:visible;";
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+  return { wrapper, clone, largura };
+}
+
 function opcoesPDF(nome, largura) {
   return {
     margin: [5, 5, 5, 5],
@@ -1819,22 +1860,25 @@ async function gerarPDF() {
   const { body } = prepararDocumentoEncomenda(true);
   const forn = obterMetaFornecedor(categoria, fornecedorKey);
   const nome = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
-  showAlert("A gerar PDF conforme a visualização…", "info");
+  showAlert("A gerar PDF A4 horizontal…", "info");
 
+  let exportacao;
   try {
     await esperarImagensDocumento(body);
     await esperarRenderDocumento();
-
-    const largura = Math.ceil(body.getBoundingClientRect().width || 920);
+    exportacao = criarDocumentoExportacao();
+    await esperarImagensDocumento(exportacao.clone);
     await html2pdf()
-      .set(opcoesPDF(nome, largura))
-      .from(body)
+      .set(opcoesPDF(nome, exportacao.largura))
+      .from(exportacao.clone)
       .save();
 
-    showAlert("PDF gerado com o mesmo modelo da visualização.", "ok");
+    showAlert("PDF gerado em A4 horizontal, com margens e colunas ajustadas.", "ok");
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
     showAlert("Não foi possível gerar o PDF. Tente novamente.", "warn");
+  } finally {
+    if (exportacao) exportacao.wrapper.remove();
   }
 }
 
@@ -1843,16 +1887,22 @@ async function gerarPdfBase64() {
   const forn = obterMetaFornecedor(categoria, fornecedorKey);
   const fileName = "Encomenda_" + (forn ? forn.label.replace(/[^a-zA-Z0-9]/g, "_") : "Fornecedor") + "_" + new Date().toISOString().slice(0,10) + ".pdf";
 
-  await esperarImagensDocumento(body);
-  await esperarRenderDocumento();
+  let exportacao;
+  try {
+    await esperarImagensDocumento(body);
+    await esperarRenderDocumento();
+    exportacao = criarDocumentoExportacao();
+    await esperarImagensDocumento(exportacao.clone);
 
-  const largura = Math.ceil(body.getBoundingClientRect().width || 920);
-  const dataUri = await html2pdf()
-    .set(opcoesPDF(fileName, largura))
-    .from(body)
-    .outputPdf("datauristring");
+    const dataUri = await html2pdf()
+      .set(opcoesPDF(fileName, exportacao.largura))
+      .from(exportacao.clone)
+      .outputPdf("datauristring");
 
-  return { fileName, base64: dataUri.split(",")[1] || dataUri };
+    return { fileName, base64: dataUri.split(",")[1] || dataUri };
+  } finally {
+    if (exportacao) exportacao.wrapper.remove();
+  }
 }
 
 function fecharModalPosPdf() {
