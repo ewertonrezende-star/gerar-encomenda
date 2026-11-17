@@ -740,6 +740,19 @@ table.encomenda .orig {
 .doc-body { max-width: 100% !important; overflow: visible !important; }
 .preview-doc { max-width: 1100px !important; }
 
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.badge-ok { background: #e8f5e9; color: #1b5e20; }
+.badge-off { background: #f5f5f5; color: #757575; }
+#tblFornecedores td { text-align: left; }
+#tblFornecedores td.center { text-align: center; }
+
 </style>
 </head>
 <body>
@@ -758,7 +771,7 @@ table.encomenda .orig {
       <span>←</span> Voltar ao Portal
     </a>
     <div class="group-label">Central / Compras</div>
-    <button class="active" id="navEncomenda">
+    <button class="active" id="navEncomenda" onclick="mostrarVista('encomenda')">
       <span>🛒</span> Gerar Encomenda
     </button>
     <button class="sub" data-cat="geral" onclick="selecionarCategoria('geral')">
@@ -766,6 +779,13 @@ table.encomenda .orig {
     </button>
     <button class="sub active" data-cat="cereais" onclick="selecionarCategoria('cereais')">
       Encomenda Cereais e Rações
+    </button>
+    <div class="group-label">Configuração</div>
+    <button id="navOpcoes" onclick="mostrarVista('opcoes')">
+      <span>⚙️</span> Opções
+    </button>
+    <button class="sub" id="navFornecedores" onclick="mostrarVista('opcoes')">
+      Fornecedores
     </button>
     <div class="group-label">Conta</div>
     <button onclick="sair()">
@@ -794,6 +814,9 @@ table.encomenda .orig {
 
   <div class="content">
     <div id="alertBox" class="alert"></div>
+
+    <!-- ========== VISTA: GERAR ENCOMENDA ========== -->
+    <div id="viewEncomenda">
 
     <!-- Seleção categoria + fornecedor -->
     <div class="section-title"><span class="ico">1</span> Tipo de encomenda e fornecedor</div>
@@ -884,6 +907,96 @@ table.encomenda .orig {
       <div class="ico">📦</div>
       <p>Selecione a categoria e o fornecedor, depois clique em <strong>Atualizar Encomenda</strong>.</p>
       <p style="margin-top:8px;font-size:12px">Os dados são agregados a partir dos mapas submetidos pelas seis lojas.</p>
+    </div>
+
+    </div><!-- /viewEncomenda -->
+
+    <!-- ========== VISTA: OPÇÕES / FORNECEDORES ========== -->
+    <div id="viewOpcoes" style="display:none">
+      <div class="section-title"><span class="ico">⚙️</span> Opções · Fornecedores</div>
+      <p style="font-size:13.5px;color:var(--muted);margin-bottom:16px;max-width:720px">
+        Cadastro de fornecedores usados em <strong>Gerar Encomenda</strong>.
+        Aqui define nome, código e e-mails. Depois escolha-os no ecrã de encomenda e grave os artigos.
+      </p>
+
+      <div class="toolbar" style="margin-bottom:14px">
+        <button class="btn btn-primary" onclick="abrirModalFornecedor()">+ Adicionar fornecedor</button>
+        <button class="btn btn-outline" onclick="carregarCadastroFornecedores(true)">↻ Atualizar lista</button>
+        <select id="filtroCatFornecedor" onchange="renderListaFornecedores()" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-family:inherit">
+          <option value="cereais">Cereais e Rações</option>
+          <option value="geral">Encomenda Geral</option>
+          <option value="todos">Todas as categorias</option>
+        </select>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Lista de fornecedores</h3>
+          <span class="meta" id="metaFornecedores">—</span>
+        </div>
+        <div class="table-scroll">
+          <table class="encomenda" id="tblFornecedores">
+            <thead>
+              <tr>
+                <th class="left">Código</th>
+                <th class="left">Nome</th>
+                <th class="left">Categoria</th>
+                <th class="left">E-mails</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyFornecedores">
+              <tr><td colspan="6" style="padding:20px;color:#888">A carregar…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /viewOpcoes -->
+
+  </div>
+</div>
+
+<!-- ========== MODAL FORNECEDOR ========== -->
+<div class="modal-bg" id="modalFornecedor">
+  <div class="modal" style="max-width:520px">
+    <h3 id="modalFornecedorTitulo">Adicionar fornecedor</h3>
+    <input type="hidden" id="fornEditKey" value="">
+    <div class="field">
+      <label>Categoria *</label>
+      <select id="fornCategoria">
+        <option value="cereais">Cereais e Rações</option>
+        <option value="geral">Encomenda Geral</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Código</label>
+      <input type="text" id="fornCodigo" placeholder="Ex.: 000803">
+    </div>
+    <div class="field">
+      <label>Nome *</label>
+      <input type="text" id="fornLabel" placeholder="Ex.: Avenal Petfood S.A.">
+    </div>
+    <div class="field">
+      <label>E-mails (separados por vírgula) *</label>
+      <input type="text" id="fornEmails" placeholder="encomendas@fornecedor.pt, comercial@fornecedor.pt">
+    </div>
+    <div class="field">
+      <label>Morada para descarga</label>
+      <input type="text" id="fornMorada" placeholder="Opcional">
+    </div>
+    <div class="field">
+      <label>Contacto</label>
+      <input type="text" id="fornContacto" placeholder="Tel. / pessoa de contacto">
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:500">
+        <input type="checkbox" id="fornAtivo" checked style="width:auto"> Fornecedor activo (aparece no dropdown)
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="fecharModalFornecedor()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarFornecedor()">Guardar</button>
     </div>
   </div>
 </div>
@@ -1098,6 +1211,10 @@ let perfil = null;
 let mapaAtual = null;
 let utilizadorId = null;
 const mapasCache = { geral: null, cereais: null };
+let cadastroFornecedores = []; // lista completa (Supabase ou local)
+const LS_FORNECEDORES = "coopsintra_fornecedores_cadastro";
+let vistaActual = "encomenda";
+
 const CODIGOS_LOJAS = [
   { short: "AL", key: "albarraque" },
   { short: "AM", key: "arneiro" },
@@ -1199,6 +1316,23 @@ async function obterMapaMaisRecente(cat, forcar = false) {
 }
 
 function obterMetaFornecedor(cat, chave) {
+  // 1) Cadastro em Opções (prioritário)
+  const doCadastro = cadastroFornecedores.find(f =>
+    f.ativo !== false &&
+    f.categoria === cat &&
+    (f.key === chave || normalizarTexto(f.label) === normalizarTexto(chave) || f.key === normalizarTexto(chave))
+  );
+  if (doCadastro) {
+    return {
+      label: doCadastro.label,
+      codigo: doCadastro.codigo || "",
+      emails: doCadastro.emails || [],
+      morada: doCadastro.morada || "",
+      contacto: doCadastro.contacto || ""
+    };
+  }
+
+  // 2) Lista fixa no código
   const lista = FORNECEDORES[cat] || {};
   if (lista[chave]) return lista[chave];
 
@@ -1210,6 +1344,218 @@ function obterMetaFornecedor(cat, chave) {
 
   return { label: chave, codigo: "", emails: [], morada: "", contacto: "" };
 }
+
+/* ============================================================
+   OPÇÕES · FORNECEDORES
+   ============================================================ */
+function mostrarVista(nome) {
+  vistaActual = nome;
+  const vEnc = document.getElementById("viewEncomenda");
+  const vOpt = document.getElementById("viewOpcoes");
+  if (vEnc) vEnc.style.display = nome === "encomenda" ? "" : "none";
+  if (vOpt) vOpt.style.display = nome === "opcoes" ? "" : "none";
+
+  document.getElementById("navEncomenda")?.classList.toggle("active", nome === "encomenda");
+  document.getElementById("navOpcoes")?.classList.toggle("active", nome === "opcoes");
+  document.getElementById("navFornecedores")?.classList.toggle("active", nome === "opcoes");
+
+  const topH = document.querySelector(".topbar h1");
+  const topT = document.querySelector(".topbar .tagline");
+  if (nome === "opcoes") {
+    if (topH) topH.textContent = "⚙️ Opções · Fornecedores";
+    if (topT) topT.textContent = "Cadastro de fornecedores para Gerar Encomenda";
+    carregarCadastroFornecedores(true);
+  } else {
+    if (topH) topH.textContent = "🛒 Gerar Encomenda";
+    if (topT) topT.textContent = "Selecione o fornecedor e visualize a encomenda · Juntos pelo campo";
+  }
+}
+
+function seedCadastroFromCodigo() {
+  const out = [];
+  Object.entries(FORNECEDORES).forEach(([cat, mapa]) => {
+    Object.entries(mapa || {}).forEach(([key, f]) => {
+      out.push({
+        key,
+        categoria: cat,
+        label: f.label || key,
+        codigo: f.codigo || "",
+        emails: Array.isArray(f.emails) ? f.emails : [],
+        morada: f.morada || "",
+        contacto: f.contacto || "",
+        ativo: true
+      });
+    });
+  });
+  return out;
+}
+
+function lerLocalFornecedores() {
+  try {
+    const raw = localStorage.getItem(LS_FORNECEDORES);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : null;
+  } catch (_) { return null; }
+}
+
+function gravarLocalFornecedores(lista) {
+  localStorage.setItem(LS_FORNECEDORES, JSON.stringify(lista));
+}
+
+async function carregarCadastroFornecedores(render = false) {
+  // Tenta Supabase; se a tabela não existir, usa localStorage + seed do código
+  try {
+    const { data, error } = await sb.from("fornecedores_cadastro").select("*").order("label");
+    if (error) throw error;
+    cadastroFornecedores = (data || []).map(row => ({
+      key: row.key,
+      categoria: row.categoria || "cereais",
+      label: row.label,
+      codigo: row.codigo || "",
+      emails: Array.isArray(row.emails) ? row.emails : String(row.emails || "").split(",").map(s => s.trim()).filter(Boolean),
+      morada: row.morada || "",
+      contacto: row.contacto || "",
+      ativo: row.ativo !== false
+    }));
+    gravarLocalFornecedores(cadastroFornecedores);
+  } catch (e) {
+    console.warn("fornecedores_cadastro:", e.message || e);
+    const local = lerLocalFornecedores();
+    cadastroFornecedores = local && local.length ? local : seedCadastroFromCodigo();
+    if (!local || !local.length) gravarLocalFornecedores(cadastroFornecedores);
+  }
+  if (render) renderListaFornecedores();
+  return cadastroFornecedores;
+}
+
+function renderListaFornecedores() {
+  const tbody = document.getElementById("tbodyFornecedores");
+  const filtro = (document.getElementById("filtroCatFornecedor") || {}).value || "cereais";
+  if (!tbody) return;
+
+  let lista = cadastroFornecedores.slice();
+  if (filtro !== "todos") lista = lista.filter(f => f.categoria === filtro);
+  lista.sort((a, b) => a.label.localeCompare(b.label, "pt-PT", { sensitivity: "base" }));
+
+  document.getElementById("metaFornecedores").textContent =
+    lista.length + " fornecedor" + (lista.length === 1 ? "" : "es");
+
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;color:#888">Nenhum fornecedor. Clique em «Adicionar fornecedor».</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(f => `
+    <tr style="${f.ativo === false ? "opacity:.55" : ""}">
+      <td class="left"><span class="code">${esc(f.codigo || "—")}</span></td>
+      <td class="left"><strong>${esc(f.label)}</strong></td>
+      <td class="left">${f.categoria === "geral" ? "Geral" : "Cereais"}</td>
+      <td class="left" style="font-size:12px;max-width:260px;word-break:break-all">${esc((f.emails || []).join(", ") || "—")}</td>
+      <td class="center">${f.ativo === false ? '<span class="badge badge-off">Inactivo</span>' : '<span class="badge badge-ok">Activo</span>'}</td>
+      <td class="center" style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick='editarFornecedor(${JSON.stringify(f.key)}, ${JSON.stringify(f.categoria)})'>Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick='alternarAtivoFornecedor(${JSON.stringify(f.key)}, ${JSON.stringify(f.categoria)})'>${f.ativo === false ? "Activar" : "Desactivar"}</button>
+      </td>
+    </tr>
+  `).join("");
+}
+
+function abrirModalFornecedor(edit = null) {
+  document.getElementById("modalFornecedorTitulo").textContent = edit ? "Editar fornecedor" : "Adicionar fornecedor";
+  document.getElementById("fornEditKey").value = edit ? edit.key : "";
+  document.getElementById("fornCategoria").value = edit ? edit.categoria : "cereais";
+  document.getElementById("fornCategoria").disabled = !!edit;
+  document.getElementById("fornCodigo").value = edit ? (edit.codigo || "") : "";
+  document.getElementById("fornLabel").value = edit ? (edit.label || "") : "";
+  document.getElementById("fornEmails").value = edit ? (edit.emails || []).join(", ") : "";
+  document.getElementById("fornMorada").value = edit ? (edit.morada || "") : "";
+  document.getElementById("fornContacto").value = edit ? (edit.contacto || "") : "";
+  document.getElementById("fornAtivo").checked = edit ? edit.ativo !== false : true;
+  document.getElementById("modalFornecedor").classList.add("show");
+}
+
+function fecharModalFornecedor() {
+  document.getElementById("modalFornecedor").classList.remove("show");
+}
+
+function editarFornecedor(key, categoria) {
+  const f = cadastroFornecedores.find(x => x.key === key && x.categoria === categoria);
+  if (f) abrirModalFornecedor(f);
+}
+
+function slugKey(label) {
+  return normalizarTexto(label).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || ("forn_" + Date.now());
+}
+
+async function guardarFornecedor() {
+  const editKey = document.getElementById("fornEditKey").value.trim();
+  const categoria = document.getElementById("fornCategoria").value;
+  const codigo = document.getElementById("fornCodigo").value.trim();
+  const label = document.getElementById("fornLabel").value.trim();
+  const emails = document.getElementById("fornEmails").value.split(",").map(s => s.trim()).filter(Boolean);
+  const morada = document.getElementById("fornMorada").value.trim();
+  const contacto = document.getElementById("fornContacto").value.trim();
+  const ativo = document.getElementById("fornAtivo").checked;
+
+  if (!label) { alert("Indique o nome do fornecedor."); return; }
+  if (!emails.length) { alert("Indique pelo menos um e-mail."); return; }
+
+  const key = editKey || slugKey(label);
+  const row = { key, categoria, label, codigo, emails, morada, contacto, ativo };
+
+  const idx = cadastroFornecedores.findIndex(f => f.key === key && f.categoria === categoria);
+  if (idx >= 0) cadastroFornecedores[idx] = row;
+  else cadastroFornecedores.push(row);
+
+  gravarLocalFornecedores(cadastroFornecedores);
+
+  // Tenta gravar no Supabase (se a tabela existir)
+  try {
+    const { error } = await sb.from("fornecedores_cadastro").upsert({
+      key: row.key,
+      categoria: row.categoria,
+      label: row.label,
+      codigo: row.codigo,
+      emails: row.emails,
+      morada: row.morada,
+      contacto: row.contacto,
+      ativo: row.ativo,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "key,categoria" });
+    if (error) throw error;
+    showAlert("Fornecedor guardado no servidor.", "ok");
+  } catch (e) {
+    console.warn(e);
+    showAlert("Fornecedor guardado neste browser (tabela Supabase ainda não criada ou sem permissão).", "warn");
+  }
+
+  fecharModalFornecedor();
+  renderListaFornecedores();
+}
+
+async function alternarAtivoFornecedor(key, categoria) {
+  const f = cadastroFornecedores.find(x => x.key === key && x.categoria === categoria);
+  if (!f) return;
+  f.ativo = f.ativo === false;
+  gravarLocalFornecedores(cadastroFornecedores);
+  try {
+    await sb.from("fornecedores_cadastro").upsert({
+      key: f.key, categoria: f.categoria, label: f.label, codigo: f.codigo,
+      emails: f.emails, morada: f.morada, contacto: f.contacto, ativo: f.ativo,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "key,categoria" });
+  } catch (_) {}
+  renderListaFornecedores();
+}
+
+function fornecedoresActivosParaDropdown(cat) {
+  return cadastroFornecedores
+    .filter(f => f.categoria === cat && f.ativo !== false)
+    .map(f => ({ key: f.key, label: f.label, meta: obterMetaFornecedor(cat, f.key) }))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-PT", { sensitivity: "base" }));
+}
+
 
 function listarFornecedoresDoMapa(cat, mapa) {
   const encontrados = new Map();
@@ -1237,8 +1583,17 @@ async function popularFornecedores(preservarSelecao = false) {
   sel.disabled = true;
 
   try {
+    await carregarCadastroFornecedores(false);
     const mapa = await obterMapaMaisRecente(categoria, true);
-    const fornecedores = listarFornecedoresDoMapa(categoria, mapa);
+    const doMapa = listarFornecedoresDoMapa(categoria, mapa);
+    const doCadastro = fornecedoresActivosParaDropdown(categoria);
+    // Junta mapa + cadastro (sem duplicar keys)
+    const mapKeys = new Map();
+    doMapa.forEach(i => mapKeys.set(i.key, i));
+    doCadastro.forEach(i => { if (!mapKeys.has(i.key)) mapKeys.set(i.key, i); });
+    const fornecedores = Array.from(mapKeys.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "pt-PT", { sensitivity: "base" })
+    );
     sel.innerHTML = '<option value="">— Selecionar —</option>';
 
     fornecedores.forEach(item => {
@@ -2042,6 +2397,7 @@ async function sair() {
 
 /* Arranque */
 init();
+carregarCadastroFornecedores(false);
 </script>
 </body>
 </html>
