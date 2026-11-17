@@ -1722,7 +1722,12 @@ function descricaoDoArtigo(lojaData, codigo) {
 }
 
 function somarLinha(linha) {
-  return LOJAS.reduce((soma, loja) => soma + (Number(linha.final[loja.key]) || 0), 0);
+  const totalLojas = LOJAS.reduce((soma, loja) => {
+    if (loja.key === "central") return soma;
+    return soma + (Number(linha.final[loja.key]) || 0);
+  }, 0);
+  const quantidadeCentral = Number(linha.final.central) || 0;
+  return Math.max(0, totalLojas - quantidadeCentral);
 }
 
 function temEdicoesManuais() {
@@ -2081,10 +2086,9 @@ function construirDocumentoHTML() {
 
   let totalGeral = 0;
   const rowsHtml = linhas.filter(l => !l.removed && somarLinha(l) > 0).map(l => {
-    let rowTot = 0;
+    const rowTot = somarLinha(l);
     const qtds = LOJAS.map(loja => {
       const v = l.final[loja.key] || 0;
-      rowTot += v;
       return `<td>${v || ""}</td>`;
     }).join("");
     totalGeral += rowTot;
@@ -2356,7 +2360,7 @@ async function confirmarEnvioEmail() {
     linhas.forEach(l => {
       if (l.removed || somarLinha(l) <= 0) return;
       nArtigos++;
-      LOJAS.forEach(loja => { totalUnidades += (l.final[loja.key] || 0); });
+      totalUnidades += somarLinha(l);
     });
 
     const destino = forn.emails.join(",");
