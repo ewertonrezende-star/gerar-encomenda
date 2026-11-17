@@ -978,7 +978,7 @@ table.encomenda .orig {
       <input type="text" id="fornLabel" placeholder="Ex.: Avenal Petfood S.A.">
     </div>
     <div class="field">
-      <label>E-mails (separados por vírgula) *</label>
+      <label>E-mails (separados por vírgula) · opcional</label>
       <input type="text" id="fornEmails" placeholder="encomendas@fornecedor.pt, comercial@fornecedor.pt">
     </div>
     <div class="field">
@@ -1431,29 +1431,31 @@ async function carregarCadastroFornecedores(render = false) {
     cadastroFornecedores = local && local.length ? local : seedCadastroFromCodigo();
     if (!local || !local.length) gravarLocalFornecedores(cadastroFornecedores);
   }
-  // No Mapa Geral, os fornecedores são dinâmicos: acrescenta à lista de opções
-  // os nomes/chaves encontrados no mapa, sem gravar estes registos virtuais no Supabase.
-  try {
-    const mapaGeral = await obterMapaMaisRecente("geral", true);
-    const dinamicos = listarFornecedoresDoMapa("geral", mapaGeral);
-    dinamicos.forEach(item => {
-      const existente = encontrarCadastroFornecedor("geral", item.key);
-      if (!existente) {
-        cadastroFornecedores.push({
-          key: item.key,
-          categoria: "geral",
-          label: item.label || item.key,
-          codigo: "",
-          emails: [],
-          morada: "",
-          contacto: "",
-          ativo: true,
-          _dinamico: true
-        });
-      }
-    });
-  } catch (e) {
-    console.warn("Não foi possível carregar fornecedores dinâmicos do Mapa Geral:", e.message || e);
+  // Acrescenta fornecedores encontrados nos dois mapas, preservando as chaves
+  // originais e permitindo editar tanto Cereais e Rações como Encomenda Geral.
+  for (const cat of ["cereais", "geral"]) {
+    try {
+      const mapa = await obterMapaMaisRecente(cat, true);
+      const dinamicos = listarFornecedoresDoMapa(cat, mapa);
+      dinamicos.forEach(item => {
+        const existente = encontrarCadastroFornecedor(cat, item.key);
+        if (!existente) {
+          cadastroFornecedores.push({
+            key: item.key,
+            categoria: cat,
+            label: item.label || item.key,
+            codigo: "",
+            emails: [],
+            morada: "",
+            contacto: "",
+            ativo: true,
+            _dinamico: true
+          });
+        }
+      });
+    } catch (e) {
+      console.warn("Não foi possível carregar fornecedores dinâmicos de " + cat + ":", e.message || e);
+    }
   }
 
   if (render) renderListaFornecedores();
@@ -1532,8 +1534,6 @@ async function guardarFornecedor() {
   const ativo = document.getElementById("fornAtivo").checked;
 
   if (!label) { alert("Indique o nome do fornecedor."); return; }
-  if (!emails.length) { alert("Indique pelo menos um e-mail."); return; }
-
   // Ao editar um fornecedor dinâmico, conserva a chave exacta usada em mapas_geral.
   const key = editKey || slugKey(label);
   const row = { key, categoria, label, codigo, emails, morada, contacto, ativo };
