@@ -2241,7 +2241,7 @@ function opcoesPDF(nome) {
     },
     jsPDF: { unit: "mm", format: "a4", orientation: "landscape", compress: true },
     pagebreak: {
-      mode: ["avoid-all", "css", "legacy"],
+      mode: ["css", "legacy"],
       avoid: [".doc-header", ".doc-meta", ".doc-aviso", ".doc-lojas", ".doc-table tr", ".doc-footer"]
     }
   };
