@@ -1315,13 +1315,17 @@ async function obterMapaMaisRecente(cat, forcar = false) {
   return data;
 }
 
-function obterMetaFornecedor(cat, chave) {
-  // 1) Cadastro em Opções (prioritário)
-  const doCadastro = cadastroFornecedores.find(f =>
-    f.ativo !== false &&
+function encontrarCadastroFornecedor(cat, chave) {
+  const chaveNorm = normalizarTexto(chave);
+  return cadastroFornecedores.find(f =>
     f.categoria === cat &&
-    (f.key === chave || normalizarTexto(f.label) === normalizarTexto(chave) || f.key === normalizarTexto(chave))
-  );
+    (f.key === chave || normalizarTexto(f.label) === chaveNorm || normalizarTexto(f.key) === chaveNorm)
+  ) || null;
+}
+
+function obterMetaFornecedor(cat, chave) {
+  // Cadastro em Opções é prioritário; a chave dinâmica do mapa é preservada.
+  const doCadastro = encontrarCadastroFornecedor(cat, chave);
   if (doCadastro) {
     return {
       label: doCadastro.label,
@@ -1425,6 +1429,31 @@ async function carregarCadastroFornecedores(render = false) {
     cadastroFornecedores = local && local.length ? local : seedCadastroFromCodigo();
     if (!local || !local.length) gravarLocalFornecedores(cadastroFornecedores);
   }
+  // No Mapa Geral, os fornecedores são dinâmicos: acrescenta à lista de opções
+  // os nomes/chaves encontrados no mapa, sem gravar estes registos virtuais no Supabase.
+  try {
+    const mapaGeral = await obterMapaMaisRecente("geral", true);
+    const dinamicos = listarFornecedoresDoMapa("geral", mapaGeral);
+    dinamicos.forEach(item => {
+      const existente = encontrarCadastroFornecedor("geral", item.key);
+      if (!existente) {
+        cadastroFornecedores.push({
+          key: item.key,
+          categoria: "geral",
+          label: item.label || item.key,
+          codigo: "",
+          emails: [],
+          morada: "",
+          contacto: "",
+          ativo: true,
+          _dinamico: true
+        });
+      }
+    });
+  } catch (e) {
+    console.warn("Não foi possível carregar fornecedores dinâmicos do Mapa Geral:", e.message || e);
+  }
+
   if (render) renderListaFornecedores();
   return cadastroFornecedores;
 }
@@ -1464,7 +1493,9 @@ function renderListaFornecedores() {
 function abrirModalFornecedor(edit = null) {
   document.getElementById("modalFornecedorTitulo").textContent = edit ? "Editar fornecedor" : "Adicionar fornecedor";
   document.getElementById("fornEditKey").value = edit ? edit.key : "";
-  document.getElementById("fornCategoria").value = edit ? edit.categoria : "cereais";
+  const filtroCategoria = (document.getElementById("filtroCatFornecedor") || {}).value;
+  const categoriaInicial = filtroCategoria && filtroCategoria !== "todos" ? filtroCategoria : categoria;
+  document.getElementById("fornCategoria").value = edit ? edit.categoria : categoriaInicial;
   document.getElementById("fornCategoria").disabled = !!edit;
   document.getElementById("fornCodigo").value = edit ? (edit.codigo || "") : "";
   document.getElementById("fornLabel").value = edit ? (edit.label || "") : "";
@@ -1501,6 +1532,7 @@ async function guardarFornecedor() {
   if (!label) { alert("Indique o nome do fornecedor."); return; }
   if (!emails.length) { alert("Indique pelo menos um e-mail."); return; }
 
+  // Ao editar um fornecedor dinâmico, conserva a chave exacta usada em mapas_geral.
   const key = editKey || slugKey(label);
   const row = { key, categoria, label, codigo, emails, morada, contacto, ativo };
 
@@ -1565,6 +1597,8 @@ function listarFornecedoresDoMapa(cat, mapa) {
       ? loja.respostas : {};
     Object.keys(respostas).forEach(chave => {
       if (!encontrados.has(chave)) {
+        const cadastro = encontrarCadastroFornecedor(cat, chave);
+        if (cadastro && cadastro.ativo === false) return;
         const meta = obterMetaFornecedor(cat, chave);
         encontrados.set(chave, { key: chave, label: meta.label || chave, meta });
       }
