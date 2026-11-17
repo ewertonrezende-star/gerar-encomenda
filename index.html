@@ -1368,6 +1368,8 @@ function mostrarVista(nome) {
   if (nome === "opcoes") {
     if (topH) topH.textContent = "⚙️ Opções · Fornecedores";
     if (topT) topT.textContent = "Cadastro de fornecedores para Gerar Encomenda";
+    const filtro = document.getElementById("filtroCatFornecedor");
+    if (filtro) filtro.value = categoria;
     carregarCadastroFornecedores(true);
   } else {
     if (topH) topH.textContent = "🛒 Gerar Encomenda";
