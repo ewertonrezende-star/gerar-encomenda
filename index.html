@@ -1077,7 +1077,7 @@ table.dist-table tr:hover td { background: #f7faf8; }
     <span><i style="background:#c8e6c9"></i> Excesso (pode transferir)</span>
     <span><i style="background:#ffe0b2"></i> Défice / pedido</span>
     <span><i style="background:#bbdefb"></i> Sugestão de transferência</span>
-    <span>Edite os campos <strong>Exc.</strong> para indicar excesso manual por loja</span>
+    <span>Excesso preenchido automaticamente (Stock − necessidade). Pode editar à mão.</span>
   </div>
 
   <div class="dist-toolbar">
@@ -1112,11 +1112,13 @@ table.dist-table tr:hover td { background: #f7faf8; }
   </div>
 
   <div class="dist-note">
-    <strong>Como usar (1.ª versão):</strong>
-    1) Indique o <em>excesso</em> de cada loja no campo “exc” (stock a mais que pode sair).
-    2) Clique <strong>Recalcular sugestões</strong> — o sistema propõe transferências do excesso para lojas com pedido.
-    3) <strong>Aplicar transferências à encomenda</strong> atualiza as quantidades da encomenda atual (reduz pedidos nas lojas que recebem transferência e coloca a sobra residual em CENTRAL, que continua a descontar do total).
-    A encomenda original e o cálculo de CENTRAL mantêm-se intactos.
+    <strong>Como funciona o excesso automático:</strong>
+    <code>Excesso = max(0, Stock usado − necessidade)</code>
+    · <em>Stock usado</em> = Stock Real (se a loja preencheu) senão Stock Sistema
+    · <em>necessidade</em> = (Vendas 30 dias ÷ 30) × (lead time × 2) — a mesma regra do mapa das lojas.
+    Quando a loja não precisa de comprar (necessidade coberta pelo stock), a sobra aparece aqui para transferir.
+    Pode editar o campo <em>exc</em> manualmente (fica marcado a dourado). <strong>Recalcular</strong> volta aos valores automáticos.
+    <strong>Aplicar transferências</strong> atualiza a encomenda: pedidos = residual a comprar; sobra → CENTRAL (continua a descontar).
   </div>
 </div>
 
@@ -2654,8 +2656,12 @@ async function sair() {
 
 /* Arranque */
 
+
 /* ============================================================
    MAPA DE DISTRIBUIÇÃO (novo — NÃO altera funções existentes)
+   Excesso automático = max(0, stockUsado − necessidade)
+   stockUsado = Stock Real (se preenchido) senão Stock Sistema
+   necessidade = (Vendas30 / 30) × (leadTime × 2)   [igual ao mapa das lojas]
    ============================================================ */
 const DIST_LOJAS = [
   { key: "albarraque", short: "AL", label: "Albarraque" },
@@ -2666,14 +2672,19 @@ const DIST_LOJAS = [
   { key: "sabugo", short: "SA", label: "Sabugo" }
 ];
 
-/** excesso manual por linha: { [idx]: { albarraque: n, ... } } */
+/** excesso: auto calculado + override manual { [idxOrCodigo]: { albarraque: n, ... } } */
 let distExcesso = {};
+/** marcas de edição manual para não sobrescrever o que o utilizador alterou */
+let distExcessoManual = {}; // { "codigo|lojaKey": true }
+/** linhas extra só com excesso (não estão na encomenda) */
+let distLinhasExtra = [];
 
 function toggleMapaDistribuicao() {
   const card = document.getElementById("mapaDistribuicao");
   if (!card) return;
   const open = !card.classList.contains("show");
   if (open) {
+    distPrepararDados();
     distRender();
     card.classList.add("show");
     card.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2682,50 +2693,236 @@ function toggleMapaDistribuicao() {
   }
 }
 
+/**
+ * Lê do mapaAtual (já carregado na encomenda) os dados de stock/vendas/leadTime
+ * por loja e artigo.
+ * Estrutura mapa.lojas[SHORT] = {
+ *   vendas30: { codigo: qty },
+ *   stockVendas: { codigo: stock },  // stock sistema (ficheiro vendas)
+ *   descVendas: { codigo: desc },
+ *   respostas: { fornecedorKey: { leadTime, rows: [{ c, real, alt, prev, final }] } }
+ * }
+ */
+function distLookupArtigoNoMapa(codigo) {
+  const out = {}; // key loja -> { stockSistema, stockReal, vendas30, leadTime, final, prev }
+  if (!mapaAtual || !mapaAtual.lojas) return out;
+
+  const cod = String(codigo).trim();
+  CODIGOS_LOJAS.forEach(lojaRef => {
+    const short = lojaRef.short;
+    const key = lojaRef.key;
+    if (key === "central") return;
+    const lojaData = mapaAtual.lojas[short];
+    if (!lojaData) return;
+
+    const vendas30Map = lojaData.vendas30 || {};
+    const stockSisMap = lojaData.stockVendas || {};
+    const vendas30 = Number(vendas30Map[cod]) || 0;
+    let stockSistema = stockSisMap[cod];
+    if (stockSistema == null || stockSistema === "") stockSistema = null;
+    else stockSistema = Number(stockSistema);
+
+    let stockReal = null;
+    let finalEnc = null;
+    let prev = null;
+    let leadTime = 30;
+
+    const respostas = lojaData.respostas || {};
+    // Preferir resposta do fornecedor atual; senão qualquer resposta com este artigo
+    const ordem = [];
+    if (fornecedorKey && respostas[fornecedorKey]) ordem.push(respostas[fornecedorKey]);
+    Object.keys(respostas).forEach(k => {
+      if (k !== fornecedorKey) ordem.push(respostas[k]);
+    });
+
+    for (const resp of ordem) {
+      if (!resp || !Array.isArray(resp.rows)) continue;
+      if (resp.leadTime) leadTime = Number(resp.leadTime) || 30;
+      const row = resp.rows.find(r => String(r.c || "").trim() === cod);
+      if (row) {
+        if (row.real !== undefined && row.real !== null && String(row.real).trim() !== "") {
+          const n = Number(String(row.real).replace(",", "."));
+          if (Number.isFinite(n)) stockReal = n;
+        }
+        if (row.final !== undefined && row.final !== null && String(row.final).trim() !== "" && String(row.final).trim() !== "—") {
+          const n = Number(String(row.final).replace(",", "."));
+          if (Number.isFinite(n)) finalEnc = n;
+        }
+        if (row.prev !== undefined && row.prev !== null && String(row.prev).trim() !== "" && String(row.prev).trim() !== "—") {
+          const n = Number(String(row.prev).replace(",", "."));
+          if (Number.isFinite(n)) prev = n;
+        }
+        break;
+      }
+    }
+
+    out[key] = {
+      short,
+      stockSistema,
+      stockReal,
+      vendas30,
+      leadTime,
+      final: finalEnc,
+      prev
+    };
+  });
+  return out;
+}
+
+/**
+ * Excesso automático:
+ *   stockUsado = Stock Real se preenchido, senão Stock Sistema (negativo → 0)
+ *   necessidade = (Vendas30 / 30) * (leadTime * 2)   // mesma regra do mapa das lojas
+ *   excesso = max(0, floor(stockUsado - necessidade))
+ *
+ * Interpretação: stock suficiente para a cobertura da loja; o que passar disso
+ * é sobra transferível. Quando a loja não compra (final/prev = 0), esta sobra
+ * é exactamente o que queremos redistribuir.
+ */
+function distCalcularExcessoAuto(info) {
+  if (!info) return 0;
+  let stockUsado = null;
+  if (info.stockReal != null && Number.isFinite(info.stockReal)) {
+    stockUsado = info.stockReal;
+  } else if (info.stockSistema != null && Number.isFinite(info.stockSistema)) {
+    stockUsado = info.stockSistema;
+  }
+  if (stockUsado == null) return 0;
+  if (stockUsado < 0) stockUsado = 0;
+
+  const vendas30 = Number(info.vendas30) || 0;
+  const leadTime = Number(info.leadTime) || 30;
+  const diasCobertura = leadTime * 2;
+  const necessidade = (vendas30 / 30) * diasCobertura;
+  const excesso = Math.max(0, Math.floor(stockUsado - necessidade + 1e-9));
+  return excesso;
+}
+
 function distGetPedido(linha, key) {
   if (key === "central") return 0;
   return Math.max(0, Number(linha.final[key]) || 0);
 }
 
-function distGetExcesso(idx, key) {
-  const row = distExcesso[idx] || {};
-  return Math.max(0, Number(row[key]) || 0);
+function distGetExcesso(idx, key, codigo) {
+  const manualKey = (codigo || idx) + "|" + key;
+  // Preferir valor guardado em distExcesso (auto ou manual)
+  const row = distExcesso[idx] || distExcesso[codigo] || {};
+  if (Object.prototype.hasOwnProperty.call(row, key)) {
+    return Math.max(0, Number(row[key]) || 0);
+  }
+  return 0;
 }
 
-function distSetExcesso(idx, key, val) {
+function distSetExcesso(idx, key, val, codigo, isManual) {
   if (!distExcesso[idx]) distExcesso[idx] = {};
   distExcesso[idx][key] = Math.max(0, Number(val) || 0);
+  if (codigo) {
+    if (!distExcesso[codigo]) distExcesso[codigo] = {};
+    distExcesso[codigo][key] = distExcesso[idx][key];
+  }
+  if (isManual) {
+    distExcessoManual[(codigo || idx) + "|" + key] = true;
+  }
 }
 
-/**
- * Algoritmo de transferência:
- * - Fontes = lojas com excesso
- * - Destinos = lojas com pedido (défice)
- * - Esgota excesso nas fontes para cobrir destinos
- * - Residual de excesso → CENTRAL
- * - Pedido não coberto → ainda comprar
- */
+/** Preenche excessos automáticos a partir do mapaAtual; não sobrescreve edições manuais */
+function distPrepararDados() {
+  distLinhasExtra = [];
+  if (!mapaAtual) return;
+
+  // 1) Para linhas da encomenda: calcular excesso auto
+  (linhas || []).forEach((linha, idx) => {
+    if (linha.removed) return;
+    const lookup = distLookupArtigoNoMapa(linha.codigo);
+    DIST_LOJAS.forEach(l => {
+      const manualKey = linha.codigo + "|" + l.key;
+      if (distExcessoManual[manualKey]) return; // não mexer
+      const info = lookup[l.key];
+      const exc = distCalcularExcessoAuto(info);
+      distSetExcesso(idx, l.key, exc, linha.codigo, false);
+    });
+  });
+
+  // 2) Artigos com excesso no mapa mas sem pedido na encomenda (para ver sobras)
+  const codigosNaEncomenda = new Set(
+    (linhas || []).filter(l => !l.removed).map(l => String(l.codigo).trim())
+  );
+  const extrasMap = new Map(); // codigo -> { artigo, excessos por loja }
+
+  CODIGOS_LOJAS.forEach(lojaRef => {
+    if (lojaRef.key === "central") return;
+    const lojaData = mapaAtual.lojas && mapaAtual.lojas[lojaRef.short];
+    if (!lojaData) return;
+    const vendas30Map = lojaData.vendas30 || {};
+    const stockSisMap = lojaData.stockVendas || {};
+    const respostas = lojaData.respostas || {};
+
+    // Códigos candidatos: vendas30 + rows das respostas
+    const codigos = new Set(Object.keys(vendas30Map));
+    Object.values(respostas).forEach(resp => {
+      if (resp && Array.isArray(resp.rows)) {
+        resp.rows.forEach(r => {
+          const c = String(r.c || "").trim();
+          if (c) codigos.add(c);
+        });
+      }
+    });
+
+    codigos.forEach(cod => {
+      if (codigosNaEncomenda.has(cod)) return;
+      const lookup = distLookupArtigoNoMapa(cod);
+      const info = lookup[lojaRef.key];
+      const exc = distCalcularExcessoAuto(info);
+      if (exc <= 0) return;
+
+      if (!extrasMap.has(cod)) {
+        let desc = "";
+        if (lojaData.descVendas && lojaData.descVendas[cod]) {
+          const d = lojaData.descVendas[cod];
+          desc = typeof d === "string" ? d : (d.descricao || d.desc || d.nome || "");
+        }
+        extrasMap.set(cod, {
+          codigo: cod,
+          artigo: desc || "Artigo com excesso",
+          orig: { central:0, albarraque:0, arneiro:0, colares:0, memmartins:0, sabugo:0, sintra:0 },
+          final: { central:0, albarraque:0, arneiro:0, colares:0, memmartins:0, sabugo:0, sintra:0 },
+          removed: false,
+          manual: false,
+          _extra: true
+        });
+      }
+      // guardar excesso
+      const idxKey = "extra:" + cod;
+      distSetExcesso(idxKey, lojaRef.key, exc, cod, false);
+    });
+  });
+
+  distLinhasExtra = Array.from(extrasMap.values()).sort((a, b) =>
+    a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
+  );
+}
+
 function distCalcularLinha(linha, idx) {
   const pedidos = {};
   const excessos = {};
   let pedidoTotal = 0;
   let excessoTotal = 0;
+  const codigo = linha.codigo;
+  const idxKey = linha._extra ? ("extra:" + codigo) : idx;
 
   DIST_LOJAS.forEach(l => {
     const p = distGetPedido(linha, l.key);
-    const e = distGetExcesso(idx, l.key);
+    const e = distGetExcesso(idxKey, l.key, codigo);
     pedidos[l.key] = p;
     excessos[l.key] = e;
     pedidoTotal += p;
     excessoTotal += e;
   });
 
-  // Cópias mutáveis
   const falta = { ...pedidos };
   const disponivel = { ...excessos };
-  const transferencias = []; // { from, to, qty }
+  const transferencias = [];
 
-  // Para cada destino com falta, consumir de fontes com disponível
   DIST_LOJAS.forEach(dest => {
     let precisa = falta[dest.key] || 0;
     if (precisa <= 0) return;
@@ -2736,7 +2933,10 @@ function distCalcularLinha(linha, idx) {
       if (disp <= 0) return;
       const move = Math.min(precisa, disp);
       if (move > 0) {
-        transferencias.push({ from: orig.short, to: dest.short, fromKey: orig.key, toKey: dest.key, qty: move });
+        transferencias.push({
+          from: orig.short, to: dest.short,
+          fromKey: orig.key, toKey: dest.key, qty: move
+        });
         disponivel[orig.key] -= move;
         falta[dest.key] -= move;
         precisa -= move;
@@ -2748,15 +2948,8 @@ function distCalcularLinha(linha, idx) {
   const sobraCentral = DIST_LOJAS.reduce((s, l) => s + (disponivel[l.key] || 0), 0);
 
   return {
-    pedidos,
-    excessos,
-    pedidoTotal,
-    excessoTotal,
-    transferencias,
-    aindaComprar,
-    sobraCentral,
-    falta,
-    disponivel
+    pedidos, excessos, pedidoTotal, excessoTotal,
+    transferencias, aindaComprar, sobraCentral, falta, disponivel, idxKey
   };
 }
 
@@ -2775,6 +2968,9 @@ function distTextoSugestao(calc) {
   } else if (calc.pedidoTotal > 0) {
     parts.push(`<div class="c">Sem excesso interno</div>`);
     parts.push(`<div class="f">Comprar tudo: ${calc.pedidoTotal}</div>`);
+  } else if (calc.excessoTotal > 0) {
+    parts.push(`<div class="c">Só excesso · sem pedido nesta encomenda</div>`);
+    parts.push(`<div class="c">Sobra ${calc.excessoTotal} → CENTRAL (ou transferir noutro fornecedor)</div>`);
   } else {
     parts.push(`<div class="c">—</div>`);
   }
@@ -2789,21 +2985,27 @@ function distRender() {
   let sumPedido = 0, sumExcesso = 0, sumComprar = 0, sumCentral = 0;
   let n = 0;
 
-  if (!linhas || !linhas.length) {
-    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Sem linhas de encomenda. Atualize a encomenda primeiro.</td></tr>`;
-    distUpdateKpis(0,0,0,0);
+  const todas = [];
+  (linhas || []).forEach((linha, idx) => {
+    if (linha.removed) return;
+    todas.push({ linha, idx });
+  });
+  distLinhasExtra.forEach(linha => {
+    todas.push({ linha, idx: "extra:" + linha.codigo });
+  });
+
+  if (!todas.length) {
+    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Sem linhas. Atualize a encomenda primeiro (o mapa usa os dados do mapa das lojas já carregado).</td></tr>`;
+    distUpdateKpis(0, 0, 0, 0);
     return;
   }
 
-  linhas.forEach((linha, idx) => {
-    if (linha.removed) return;
-    const rowTotal = typeof somarLinha === "function" ? somarLinha(linha) : 0;
-    // incluir linhas com pedido nas lojas mesmo se total for 0 por causa de central
-    const temPedidoLojas = DIST_LOJAS.some(l => distGetPedido(linha, l.key) > 0);
-    if (!temPedidoLojas && !linha.manual) return;
+  todas.forEach(({ linha, idx }) => {
+    const calc = distCalcularLinha(linha, idx);
+    const temAlgo = calc.pedidoTotal > 0 || calc.excessoTotal > 0;
+    if (!temAlgo && !linha.manual) return;
 
     n++;
-    const calc = distCalcularLinha(linha, idx);
     sumPedido += calc.pedidoTotal;
     sumExcesso += calc.excessoTotal;
     sumComprar += calc.aindaComprar;
@@ -2811,21 +3013,25 @@ function distRender() {
 
     const cells = [];
     cells.push(`<td class="left code">${esc(linha.codigo)}</td>`);
-    cells.push(`<td class="left">${esc(linha.artigo)}</td>`);
+    const extraTag = linha._extra ? ' <span style="font-size:10px;color:#888;">(só excesso)</span>' : "";
+    cells.push(`<td class="left">${esc(linha.artigo)}${extraTag}</td>`);
 
     DIST_LOJAS.forEach(l => {
       const p = calc.pedidos[l.key] || 0;
       const e = calc.excessos[l.key] || 0;
       const pCls = p > 0 ? "deficit" : "zero";
       const pTxt = p > 0 ? p : "—";
+      const manualKey = linha.codigo + "|" + l.key;
+      const isManual = !!distExcessoManual[manualKey];
       cells.push(`<td>
-        <span class="dist-qty ${pCls}" title="Pedido">${pTxt}</span>
+        <span class="dist-qty ${pCls}" title="Pedido na encomenda">${pTxt}</span>
         <input type="number" class="dist-input excess-in" min="0" step="1"
           value="${e > 0 ? e : ""}"
           placeholder="exc"
-          title="Excesso nesta loja (editável)"
-          data-idx="${idx}" data-loja="${l.key}"
-          onchange="distOnExcessoChange(this)">
+          title="${isManual ? "Excesso manual" : "Excesso automático (Stock − necessidade). Pode editar."}"
+          data-idx="${idx}" data-loja="${l.key}" data-codigo="${esc(linha.codigo)}"
+          onchange="distOnExcessoChange(this)"
+          style="${isManual ? "outline:1px solid #c9a24a;" : ""}">
       </td>`);
     });
 
@@ -2837,17 +3043,17 @@ function distRender() {
 
     const tr = document.createElement("tr");
     tr.innerHTML = cells.join("");
+    if (linha._extra) tr.style.background = "#fafcfb";
     tbody.appendChild(tr);
   });
 
   if (n === 0) {
-    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Nenhuma linha com quantidades nas lojas.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Nenhuma linha com pedido ou excesso.</td></tr>`;
   }
   distUpdateKpis(sumPedido, sumExcesso, sumComprar, sumCentral);
 
-  // Mostrar botão na toolbar se houver dados
   const btn = document.getElementById("btnMapaDist");
-  if (btn) btn.style.display = n > 0 || (linhas && linhas.length) ? "" : "none";
+  if (btn) btn.style.display = (linhas && linhas.length) ? "" : "none";
 }
 
 function distUpdateKpis(pedido, excesso, comprar, central) {
@@ -2859,71 +3065,70 @@ function distUpdateKpis(pedido, excesso, comprar, central) {
 }
 
 function distOnExcessoChange(input) {
-  const idx = Number(input.dataset.idx);
+  const idx = input.dataset.idx;
   const loja = input.dataset.loja;
-  distSetExcesso(idx, loja, input.value);
+  const codigo = input.dataset.codigo;
+  const numIdx = String(idx).startsWith("extra:") ? idx : Number(idx);
+  distSetExcesso(numIdx, loja, input.value, codigo, true);
   distRender();
 }
 
 function distRecalcular() {
+  // Limpa overrides manuais e volta ao automático
+  distExcessoManual = {};
+  distExcesso = {};
+  distPrepararDados();
   distRender();
-  if (typeof showAlert === "function") showAlert("Sugestões recalculadas.", "ok");
+  if (typeof showAlert === "function") {
+    showAlert("Excessos recalculados automaticamente (Stock Real/Sistema − necessidade por vendas 30d).", "ok");
+  }
 }
 
 function distPreencherExcessoZero() {
   distExcesso = {};
+  distExcessoManual = {};
+  distLinhasExtra = [];
   distRender();
   if (typeof showAlert === "function") showAlert("Excessos limpos.", "info");
 }
 
 /**
- * Aplica o resultado à encomenda atual:
- * - Reduz o final das lojas destino pelo que receberam (já coberto por transferência)
- * - Na prática: o pedido residual (ainda comprar) fica nas lojas;
- *   o que foi coberto por transferência sai do pedido dessas lojas.
- * - Sobra residual vai para CENTRAL (continua a descontar do total).
- *
- * Implementação segura:
- *   para cada linha, final[loja] = falta[loja]  (o que ainda precisa de compra)
- *   final.central = (final.central || 0) + sobraCentral
- * Assim o somarLinha existente mantém a regra CENTRAL desconta.
+ * Aplica à encomenda atual (só linhas que já estão na encomenda):
+ * - final[loja] = residual a comprar (após usar excesso interno)
+ * - sobra residual soma em CENTRAL (continua a descontar)
+ * Linhas só-excesso não entram na encomenda (não há pedido).
  */
 function distAplicar() {
   if (!linhas || !linhas.length) {
     alert("Sem linhas de encomenda.");
     return;
   }
-  if (!confirm("Aplicar transferências à encomenda atual?\n\n• Pedidos das lojas passam a ser só o residual a comprar.\n• Sobra de excesso vai para CENTRAL (desconta do total, como hoje).\n\nPode gravar a encomenda a seguir.")) {
+  if (!confirm("Aplicar transferências à encomenda atual?\n\n• Pedidos das lojas = só o residual a comprar.\n• Sobra de excesso → CENTRAL (desconta do total, como hoje).\n\nPode gravar a encomenda a seguir.")) {
     return;
   }
 
   let alteradas = 0;
   linhas.forEach((linha, idx) => {
     if (linha.removed) return;
-    const temPedido = DIST_LOJAS.some(l => distGetPedido(linha, l.key) > 0);
-    const temExcesso = DIST_LOJAS.some(l => distGetExcesso(idx, l.key) > 0);
-    if (!temPedido && !temExcesso) return;
-
     const calc = distCalcularLinha(linha, idx);
-    // Atualizar finais das lojas = o que ainda falta comprar nessa loja
+    if (calc.pedidoTotal <= 0 && calc.excessoTotal <= 0) return;
+
     DIST_LOJAS.forEach(l => {
       linha.final[l.key] = Math.max(0, calc.falta[l.key] || 0);
     });
-    // Sobra residual → CENTRAL (soma ao que já lá estiver)
     const centralAtual = Number(linha.final.central) || 0;
     linha.final.central = centralAtual + (calc.sobraCentral || 0);
     alteradas++;
   });
 
-  // Re-render da encomenda (função existente) e do mapa
   if (typeof renderTabela === "function") renderTabela();
+  distPrepararDados();
   distRender();
   if (typeof showAlert === "function") {
     showAlert("Transferências aplicadas a " + alteradas + " artigo(s). CENTRAL recebeu a sobra residual. Grave a encomenda se quiser guardar.", "ok");
   }
 }
 
-// Mostrar botão quando a tabela de encomenda é renderizada
 (function distHookRender() {
   const orig = window.renderTabela;
   if (typeof orig === "function" && !orig._distHooked) {
@@ -2934,9 +3139,11 @@ function distAplicar() {
         const tem = linhas && linhas.some(l => !l.removed);
         btn.style.display = tem ? "" : "none";
       }
-      // Se o mapa estiver aberto, atualizar
       const card = document.getElementById("mapaDistribuicao");
-      if (card && card.classList.contains("show")) distRender();
+      if (card && card.classList.contains("show")) {
+        distPrepararDados();
+        distRender();
+      }
     };
     window.renderTabela._distHooked = true;
   }
