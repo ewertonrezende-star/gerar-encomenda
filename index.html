@@ -397,7 +397,14 @@ table.encomenda input.qty.changed {
   border-color: #f9a825;
   font-weight: 600;
 }
+table.encomenda .total-col input.total-edit {
+  width: 64px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
 table.encomenda .total-col {
+
   font-weight: 700;
   color: var(--primary-dark);
   background: #f0f7f2;
@@ -2228,13 +2235,23 @@ function renderTabela() {
       `);
     });
 
-    cells.push(`<td class="total-col" id="tot-${idx}">${rowTotal > 0 ? rowTotal : ""}</td>`);
+    const totalOverride = linha.totalOverride != null ? Number(linha.totalOverride) : null;
+    const totalMostrado = totalOverride != null && totalOverride >= 0 ? totalOverride : rowTotal;
+    const totalChanged = totalOverride != null && totalOverride !== rowTotal;
+    cells.push(`<td class="total-col" id="tot-${idx}">
+      <input type="number" class="qty total-edit${totalChanged ? " changed" : ""}" min="0" step="1"
+        value="${totalMostrado > 0 ? totalMostrado : ""}"
+        data-idx="${idx}"
+        title="Total a encomendar (editável para arredondar). A diferença vai para CENTRAL."
+        onchange="atualizarTotalEncomenda(this)">
+      ${totalChanged ? `<span class="orig">calc: ${rowTotal}</span>` : ""}
+    </td>`);
     cells.push(`<td><button class="btn btn-danger btn-sm" onclick="removerLinha(${idx})" title="Excluir">✕</button></td>`);
 
     tr.innerHTML = cells.join("");
     if (hasChange) tr.classList.add("edited");
     tbody.appendChild(tr);
-    totalGeral += rowTotal;
+    totalGeral += totalMostrado;
   });
 
   document.getElementById("nLinhas").textContent = nLinhas;
@@ -2257,8 +2274,91 @@ function atualizarQty(input) {
   const loja = input.dataset.loja;
   const val = Math.max(0, Number.parseInt(input.value, 10) || 0);
   linhas[idx].final[loja] = val;
+  // se o utilizador mexe nas lojas, o total volta a ser calculado
+  linhas[idx].totalOverride = null;
+  linhas[idx].arredondamentoExtra = null;
   renderTabela();
 }
+
+/**
+ * Total Unidades editável (arredondamento de compras).
+ * Diferença (novo total − total calculado) é colocada em CENTRAL:
+ *  - se aumentar o total: sobe CENTRAL (arredondamento a comprar fica em CENTRAL)
+ *  - se diminuir: reduz CENTRAL primeiro, depois não força lojas
+ * Assim o Nuno arredonda o total e o extra fica distribuído na CENTRAL.
+ * Nota: somarLinha = lojas − CENTRAL; para o total editado ser respeitado no PDF
+ * usamos totalOverride; ao gravar/aplicar o CENTRAL é ajustado para bater certo.
+ */
+function atualizarTotalEncomenda(input) {
+  const idx = Number(input.dataset.idx);
+  const linha = linhas[idx];
+  if (!linha) return;
+  const novoTotal = Math.max(0, Number(input.value) || 0);
+  const totalCalc = somarLinha(linha);
+  const somaLojas = LOJAS.reduce((s, l) => {
+    if (l.key === "central") return s;
+    return s + (Number(linha.final[l.key]) || 0);
+  }, 0);
+  const centralAtual = Number(linha.final.central) || 0;
+
+  // Queremos: somaLojas − CENTRAL = novoTotal  →  CENTRAL = somaLojas − novoTotal
+  // Se novoTotal > somaLojas, não há como só com CENTRAL descontar: aí aumentamos
+  // CENTRAL negativamente não faz sentido. Nesse caso o arredondamento para CIMA
+  // significa comprar mais: metemos a diferença como pedido extra em CENTRAL? Não —
+  // CENTRAL desconta. Para comprar MAIS, o extra tem de ir para uma loja ou
+  // tratamos totalOverride como valor de compra e ajustamos:
+  //   total compra = novoTotal
+  //   se novoTotal >= totalCalc: diferença = arredondamento a mais → guardada em
+  //   linha.arredondamento e somada ao total mostrado; na distribuição o extra
+  //   fica em CENTRAL como stock a posicionar (não desconta além do que já desconta).
+  //
+  // Abordagem prática pedida: "distribuir o arredondamento" → a diferença sobe
+  // para CENTRAL como quantidade adicional a posicionar na central, e o total
+  // a comprar passa a ser o valor editado.
+  // Para somarLinha continuar a bater: se queremos total compra = T e
+  // somarLinha = lojas - central, precisamos lojas - central = T.
+  // Se T > lojas - central (arredondar para cima), reduzimos central (mín 0);
+  // se ainda não chega, o restante fica como totalOverride (compra acima do calc).
+
+  let novoCentral = centralAtual;
+  if (novoTotal <= totalCalc) {
+    // Arredondar para baixo ou igual: aumentar CENTRAL para descontar mais
+    // lojas - central = novoTotal → central = lojas - novoTotal
+    novoCentral = Math.max(0, somaLojas - novoTotal);
+    linha.final.central = novoCentral;
+    linha.totalOverride = null; // total volta a ser o calculado
+  } else {
+    // Arredondar para cima: comprar mais do que o calculado
+    // 1) Reduz CENTRAL a 0 para maximizar total
+    linha.final.central = 0;
+    const totalComCentralZero = somaLojas;
+    if (novoTotal <= totalComCentralZero) {
+      linha.final.central = Math.max(0, somaLojas - novoTotal);
+      linha.totalOverride = null;
+    } else {
+      // Ainda precisa de mais: a diferença fica como arredondamento a comprar
+      // e é atribuída à CENTRAL como "posição" mas sem descontar (totalOverride)
+      const extra = novoTotal - totalComCentralZero;
+      linha.final.central = 0;
+      linha.totalOverride = novoTotal;
+      linha.arredondamentoExtra = extra;
+      // O extra será visível no total; na prática compras encomenda o override
+    }
+  }
+  // Se igualou ao calculado após ajuste, limpa override
+  if (Math.abs(somarLinha(linha) - novoTotal) < 0.001 && !linha.arredondamentoExtra) {
+    linha.totalOverride = null;
+  }
+  renderTabela();
+}
+
+function totalLinhaEfetivo(linha) {
+  if (linha.totalOverride != null && Number(linha.totalOverride) >= 0) {
+    return Number(linha.totalOverride);
+  }
+  return somarLinha(linha);
+}
+
 
 function removerLinha(idx) {
   if (!confirm("Remover este artigo da encomenda?")) return;
@@ -2313,8 +2413,8 @@ function construirDocumentoHTML() {
   const dataHora = new Date().toLocaleString("pt-PT");
 
   let totalGeral = 0;
-  const rowsHtml = linhas.filter(l => !l.removed && somarLinha(l) > 0).map(l => {
-    const rowTot = somarLinha(l);
+  const rowsHtml = linhas.filter(l => !l.removed && totalLinhaEfetivo(l) > 0).map(l => {
+    const rowTot = totalLinhaEfetivo(l);
     const qtds = LOJAS.map(loja => {
       const v = l.final[loja.key] || 0;
       return `<td>${v || ""}</td>`;
@@ -2548,7 +2648,7 @@ function pedirConfirmacaoEmail() {
     showAlert("Este fornecedor ainda não tem e-mail configurado.", "warn");
     return;
   }
-  if (!linhas.filter(l => !l.removed && somarLinha(l) > 0).length) {
+  if (!linhas.filter(l => !l.removed && totalLinhaEfetivo(l) > 0).length) {
     showAlert("Não há artigos na encomenda para enviar.", "warn");
     return;
   }
@@ -2586,9 +2686,9 @@ async function confirmarEnvioEmail() {
     let totalUnidades = 0;
     let nArtigos = 0;
     linhas.forEach(l => {
-      if (l.removed || somarLinha(l) <= 0) return;
+      if (l.removed || totalLinhaEfetivo(l) <= 0) return;
       nArtigos++;
-      totalUnidades += somarLinha(l);
+      totalUnidades += totalLinhaEfetivo(l);
     });
 
     const destino = forn.emails.join(",");
@@ -2928,15 +3028,28 @@ function distCalcularLinha(linha, idx) {
     excessoTotal += e;
   });
 
-  // CENTRAL já na encomenda = stock disponível para distribuir às lojas
   const centralAtual = Math.max(0, Number(linha.final && linha.final.central) || 0);
 
-  const falta = { ...pedidos };
-  const disponivel = { ...excessos };
+  // --- NET FIRST: cada loja usa o próprio excesso no próprio pedido ---
+  // Assim ninguém é origem e destino ao mesmo tempo.
+  const falta = {};      // défice líquido (só destino)
+  const disponivel = {}; // excesso líquido (só origem)
+  DIST_LOJAS.forEach(l => {
+    const p = pedidos[l.key] || 0;
+    const e = excessos[l.key] || 0;
+    if (e >= p) {
+      falta[l.key] = 0;
+      disponivel[l.key] = e - p; // sobra real para ceder
+    } else {
+      falta[l.key] = p - e;      // ainda precisa após consumir o próprio excesso
+      disponivel[l.key] = 0;
+    }
+  });
+
   let centralDisp = centralAtual;
   const transferencias = [];
 
-  // 1) Transferências loja → loja (excesso das lojas)
+  // 1) Excesso líquido loja → défice líquido loja
   DIST_LOJAS.forEach(dest => {
     let precisa = falta[dest.key] || 0;
     if (precisa <= 0) return;
@@ -2958,7 +3071,7 @@ function distCalcularLinha(linha, idx) {
     });
   });
 
-  // 2) O que ainda falta nas lojas é coberto pela CENTRAL (se houver)
+  // 2) CENTRAL → défices que restam
   DIST_LOJAS.forEach(dest => {
     let precisa = falta[dest.key] || 0;
     if (precisa <= 0 || centralDisp <= 0) return;
@@ -2974,16 +3087,10 @@ function distCalcularLinha(linha, idx) {
   });
 
   const aindaComprar = DIST_LOJAS.reduce((s, l) => s + (falta[l.key] || 0), 0);
-  // Sobra de excesso das lojas (não usado) + o que restou na CENTRAL
   const sobraExcessoLojas = DIST_LOJAS.reduce((s, l) => s + (disponivel[l.key] || 0), 0);
-  const centralRestante = centralDisp; // o que não foi distribuído às lojas
+  const centralRestante = centralDisp;
   const sobraCentral = sobraExcessoLojas + centralRestante;
-
-  // Pedido efetivo atual (antes da distribuição) = lojas − CENTRAL
   const pedidoEfetivoAtual = Math.max(0, pedidoTotal - centralAtual);
-
-  // Novo pedido = só o que as lojas ainda precisam após lojas+CENTRAL
-  // (CENTRAL restante e excesso residual descontam / não se compra)
   const novoPedido = Math.max(0, aindaComprar);
 
   return {
