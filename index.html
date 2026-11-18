@@ -779,7 +779,7 @@ table.encomenda .orig {
 .dist-header .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
 .dist-resumo {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
   padding: 14px 16px;
   background: #f0f5f1;
@@ -787,6 +787,9 @@ table.encomenda .orig {
 }
 @media (max-width: 900px) {
   .dist-resumo { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 1100px) {
+  .dist-resumo { grid-template-columns: repeat(3, 1fr); }
+  }
 }
 .dist-kpi {
   background: #fff;
@@ -1056,7 +1059,7 @@ table.dist-table tr:hover td { background: #f7faf8; }
 
   <div class="dist-resumo">
     <div class="dist-kpi">
-      <div class="label">Pedido total das lojas</div>
+      <div class="label">Pedido atual (encomenda)</div>
       <div class="value" id="distKpiPedido">0</div>
     </div>
     <div class="dist-kpi">
@@ -1064,12 +1067,16 @@ table.dist-table tr:hover td { background: #f7faf8; }
       <div class="value green" id="distKpiExcesso">0</div>
     </div>
     <div class="dist-kpi">
-      <div class="label">Ainda falta comprar</div>
+      <div class="label">Ainda falta (lojas)</div>
       <div class="value orange" id="distKpiComprar">0</div>
     </div>
     <div class="dist-kpi">
       <div class="label">Sobra → CENTRAL</div>
       <div class="value" id="distKpiCentral">0</div>
+    </div>
+    <div class="dist-kpi">
+      <div class="label">Novo pedido (a encomendar)</div>
+      <div class="value" id="distKpiNovo" style="color:#1f6b33">0</div>
     </div>
   </div>
 
@@ -1104,6 +1111,7 @@ table.dist-table tr:hover td { background: #f7faf8; }
           <th class="left">Sugestão de transferência</th>
           <th>Ainda<br>comprar</th>
           <th>Sobra<br>CENTRAL</th>
+          <th>Novo<br>pedido</th>
         </tr>
       </thead>
       <tbody id="distTbody">
@@ -1118,7 +1126,7 @@ table.dist-table tr:hover td { background: #f7faf8; }
     · <em>necessidade</em> = (Vendas 30 dias ÷ 30) × (lead time × 2) — a mesma regra do mapa das lojas.
     Quando a loja não precisa de comprar (necessidade coberta pelo stock), a sobra aparece aqui para transferir.
     Pode editar o campo <em>exc</em> manualmente (fica marcado a dourado). <strong>Recalcular</strong> volta aos valores automáticos.
-    <strong>Aplicar transferências</strong> atualiza a encomenda: pedidos = residual a comprar; sobra → CENTRAL (continua a descontar).
+    <strong>Novo pedido</strong> = ainda comprar − sobra CENTRAL (o que fica a encomendar ao fornecedor). <strong>Aplicar</strong> grava isso na encomenda.
   </div>
 </div>
 
@@ -2946,10 +2954,13 @@ function distCalcularLinha(linha, idx) {
 
   const aindaComprar = DIST_LOJAS.reduce((s, l) => s + (falta[l.key] || 0), 0);
   const sobraCentral = DIST_LOJAS.reduce((s, l) => s + (disponivel[l.key] || 0), 0);
+  // Novo pedido = o que fica a encomendar ao fornecedor após usar excesso e
+  // colocar sobra em CENTRAL (CENTRAL desconta do total, regra atual).
+  const novoPedido = Math.max(0, aindaComprar - sobraCentral);
 
   return {
     pedidos, excessos, pedidoTotal, excessoTotal,
-    transferencias, aindaComprar, sobraCentral, falta, disponivel, idxKey
+    transferencias, aindaComprar, sobraCentral, novoPedido, falta, disponivel, idxKey
   };
 }
 
@@ -2958,19 +2969,20 @@ function distTextoSugestao(calc) {
   calc.transferencias.forEach(t => {
     parts.push(`<div class="t">Transferir ${t.qty} de ${t.from} → ${t.to}</div>`);
   });
-  if (calc.sobraCentral > 0) {
-    parts.push(`<div class="c">Sobra residual ${calc.sobraCentral} → CENTRAL</div>`);
-  }
-  if (calc.aindaComprar > 0) {
-    parts.push(`<div class="f">Ainda comprar: ${calc.aindaComprar}</div>`);
-  } else if (calc.transferencias.length) {
-    parts.push(`<div class="t">✓ Coberto por transferências</div>`);
-  } else if (calc.pedidoTotal > 0) {
-    parts.push(`<div class="c">Sem excesso interno</div>`);
-    parts.push(`<div class="f">Comprar tudo: ${calc.pedidoTotal}</div>`);
+  if (calc.pedidoTotal > 0) {
+    parts.push(`<div class="c">Pedido atual: ${calc.pedidoTotal}</div>`);
+    if (calc.aindaComprar > 0) {
+      parts.push(`<div class="f">Ainda comprar (lojas): ${calc.aindaComprar}</div>`);
+    } else if (calc.transferencias.length) {
+      parts.push(`<div class="t">✓ Pedido coberto por transferências</div>`);
+    }
+    if (calc.sobraCentral > 0) {
+      parts.push(`<div class="c">Sobra ${calc.sobraCentral} → CENTRAL</div>`);
+    }
+    parts.push(`<div class="t"><strong>Novo pedido: ${calc.novoPedido}</strong></div>`);
   } else if (calc.excessoTotal > 0) {
     parts.push(`<div class="c">Só excesso · sem pedido nesta encomenda</div>`);
-    parts.push(`<div class="c">Sobra ${calc.excessoTotal} → CENTRAL (ou transferir noutro fornecedor)</div>`);
+    parts.push(`<div class="c">Sobra ${calc.excessoTotal} → CENTRAL</div>`);
   } else {
     parts.push(`<div class="c">—</div>`);
   }
@@ -2982,7 +2994,7 @@ function distRender() {
   if (!tbody) return;
   tbody.innerHTML = "";
 
-  let sumPedido = 0, sumExcesso = 0, sumComprar = 0, sumCentral = 0;
+  let sumPedido = 0, sumExcesso = 0, sumComprar = 0, sumCentral = 0, sumNovo = 0;
   let n = 0;
 
   const todas = [];
@@ -2995,8 +3007,8 @@ function distRender() {
   });
 
   if (!todas.length) {
-    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Sem linhas. Atualize a encomenda primeiro (o mapa usa os dados do mapa das lojas já carregado).</td></tr>`;
-    distUpdateKpis(0, 0, 0, 0);
+    tbody.innerHTML = `<tr><td colspan="14" style="padding:20px;color:#888;">Sem linhas. Atualize a encomenda primeiro (o mapa usa os dados do mapa das lojas já carregado).</td></tr>`;
+    distUpdateKpis(0, 0, 0, 0, 0);
     return;
   }
 
@@ -3010,6 +3022,7 @@ function distRender() {
     sumExcesso += calc.excessoTotal;
     sumComprar += calc.aindaComprar;
     sumCentral += calc.sobraCentral;
+    sumNovo += calc.novoPedido;
 
     const cells = [];
     cells.push(`<td class="left code">${esc(linha.codigo)}</td>`);
@@ -3040,6 +3053,7 @@ function distRender() {
     cells.push(`<td class="dist-sugestao">${distTextoSugestao(calc)}</td>`);
     cells.push(`<td style="font-weight:700;color:${calc.aindaComprar > 0 ? "#e65100" : "#2e7d32"}">${calc.aindaComprar}</td>`);
     cells.push(`<td style="font-weight:700;color:#1f6b33">${calc.sobraCentral || "0"}</td>`);
+    cells.push(`<td style="font-weight:700;color:#1f6b33;background:#e8f5e9">${calc.novoPedido}</td>`);
 
     const tr = document.createElement("tr");
     tr.innerHTML = cells.join("");
@@ -3048,20 +3062,21 @@ function distRender() {
   });
 
   if (n === 0) {
-    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Nenhuma linha com pedido ou excesso.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14" style="padding:20px;color:#888;">Nenhuma linha com pedido ou excesso.</td></tr>`;
   }
-  distUpdateKpis(sumPedido, sumExcesso, sumComprar, sumCentral);
+  distUpdateKpis(sumPedido, sumExcesso, sumComprar, sumCentral, sumNovo);
 
   const btn = document.getElementById("btnMapaDist");
   if (btn) btn.style.display = (linhas && linhas.length) ? "" : "none";
 }
 
-function distUpdateKpis(pedido, excesso, comprar, central) {
+function distUpdateKpis(pedido, excesso, comprar, central, novo) {
   const el = id => document.getElementById(id);
   if (el("distKpiPedido")) el("distKpiPedido").textContent = pedido;
   if (el("distKpiExcesso")) el("distKpiExcesso").textContent = excesso;
   if (el("distKpiComprar")) el("distKpiComprar").textContent = comprar;
   if (el("distKpiCentral")) el("distKpiCentral").textContent = central;
+  if (el("distKpiNovo")) el("distKpiNovo").textContent = novo != null ? novo : Math.max(0, (comprar || 0) - (central || 0));
 }
 
 function distOnExcessoChange(input) {
