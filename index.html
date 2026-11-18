@@ -753,6 +753,143 @@ table.encomenda .orig {
 #tblFornecedores td { text-align: left; }
 #tblFornecedores td.center { text-align: center; }
 
+
+/* ========== MAPA DE DISTRIBUIÇÃO (novo — não altera encomenda) ========== */
+.dist-card {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: none;
+}
+.dist-card.show { display: block; }
+.dist-header {
+  background: #0f2a17;
+  color: #fff;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dist-header h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.dist-header .sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+.dist-resumo {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 14px 16px;
+  background: #f0f5f1;
+  border-bottom: 1px solid var(--border);
+}
+@media (max-width: 900px) {
+  .dist-resumo { grid-template-columns: repeat(2, 1fr); }
+}
+.dist-kpi {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+}
+.dist-kpi .label { font-size: 11px; color: var(--muted); }
+.dist-kpi .value { font-size: 20px; font-weight: 700; color: var(--primary-dark); margin-top: 2px; }
+.dist-kpi .value.orange { color: #e65100; }
+.dist-kpi .value.green { color: #2e7d32; }
+.dist-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  font-size: 11px;
+  background: #fafcfb;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.dist-legend i {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.dist-toolbar {
+  padding: 10px 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  background: #fafcfb;
+}
+.dist-toolbar .btn-gold {
+  background: var(--gold);
+  color: #1a1508;
+  border-color: #b8913f;
+  font-weight: 600;
+}
+table.dist-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.dist-table th {
+  background: #f0f5f1;
+  padding: 8px 5px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--primary-dark);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+table.dist-table th.left, table.dist-table td.left { text-align: left; padding-left: 10px; }
+table.dist-table td {
+  padding: 6px 5px;
+  text-align: center;
+  border-bottom: 1px solid #eef2ef;
+  vertical-align: middle;
+}
+table.dist-table tr:hover td { background: #f7faf8; }
+.dist-qty {
+  display: inline-block;
+  min-width: 26px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid #c5d4c9;
+  background: #fff;
+  font-size: 12px;
+}
+.dist-qty.excess { background: #e8f5e9; border-color: #81c784; color: #2e7d32; font-weight: 600; }
+.dist-qty.deficit { background: #fff3e0; border-color: #ffb74d; color: #e65100; font-weight: 600; }
+.dist-qty.zero { color: #bbb; border-color: #e0e0e0; }
+.dist-input {
+  width: 48px;
+  padding: 3px 4px;
+  border: 1px solid #c5d4c9;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 12px;
+}
+.dist-input.excess-in { background: #e8f5e9; border-color: #81c784; }
+.dist-sugestao {
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.45;
+  max-width: 260px;
+}
+.dist-sugestao .t { color: #2e7d32; font-weight: 600; }
+.dist-sugestao .c { color: var(--primary); }
+.dist-sugestao .f { color: #e65100; font-weight: 600; }
+.dist-note {
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  background: #fafcfb;
+  border-top: 1px solid var(--border);
+}
+.dist-wrap { overflow-x: auto; max-height: 480px; overflow-y: auto; }
+
 </style>
 </head>
 <body>
@@ -856,6 +993,11 @@ table.encomenda .orig {
       <button class="btn btn-outline" onclick="abrirPreview()" id="btnPreview" disabled>
         👁 Visualizar Encomenda
       </button>
+
+        <button type="button" class="btn" id="btnMapaDist" onclick="toggleMapaDistribuicao()" title="Mapa de Distribuição interna" style="display:none;">
+          🗺️ Mapa de Distribuição
+        </button>
+
       <button class="btn btn-primary" onclick="gerarPDF()" id="btnPdf" disabled>
         📄 Gerar PDF
       </button>
@@ -903,13 +1045,88 @@ table.encomenda .orig {
       </div>
     </div>
 
+    <div class="dist-card" id="mapaDistribuicao">
+  <div class="dist-header">
+    <div>
+      <h2>🗺️ Mapa de Distribuição (interno)</h2>
+      <div class="sub">Usar excesso das lojas como 1.º fornecedor · Só comprar o residual · CENTRAL continua a descontar</div>
+    </div>
+    <div style="font-size:12px;opacity:.9;">Sugestões automáticas</div>
+  </div>
+
+  <div class="dist-resumo">
+    <div class="dist-kpi">
+      <div class="label">Pedido total das lojas</div>
+      <div class="value" id="distKpiPedido">0</div>
+    </div>
+    <div class="dist-kpi">
+      <div class="label">Excesso disponível (interno)</div>
+      <div class="value green" id="distKpiExcesso">0</div>
+    </div>
+    <div class="dist-kpi">
+      <div class="label">Ainda falta comprar</div>
+      <div class="value orange" id="distKpiComprar">0</div>
+    </div>
+    <div class="dist-kpi">
+      <div class="label">Sobra → CENTRAL</div>
+      <div class="value" id="distKpiCentral">0</div>
+    </div>
+  </div>
+
+  <div class="dist-legend">
+    <span><i style="background:#c8e6c9"></i> Excesso (pode transferir)</span>
+    <span><i style="background:#ffe0b2"></i> Défice / pedido</span>
+    <span><i style="background:#bbdefb"></i> Sugestão de transferência</span>
+    <span>Edite os campos <strong>Exc.</strong> para indicar excesso manual por loja</span>
+  </div>
+
+  <div class="dist-toolbar">
+    <button type="button" class="btn btn-primary" onclick="distRecalcular()">↻ Recalcular sugestões</button>
+    <button type="button" class="btn btn-gold" onclick="distAplicar()">✓ Aplicar transferências à encomenda</button>
+    <button type="button" class="btn" onclick="distPreencherExcessoZero()">Limpar excessos</button>
+    <button type="button" class="btn" onclick="toggleMapaDistribuicao()">✕ Fechar mapa</button>
+  </div>
+
+  <div class="dist-wrap">
+    <table class="dist-table">
+      <thead>
+        <tr>
+          <th class="left">Artigo</th>
+          <th class="left">Descrição</th>
+          <th>AL<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>AM<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>CO<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>LC<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>MM<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>SA<br><span style="font-weight:400;font-size:10px">ped / exc</span></th>
+          <th>Excesso<br>total</th>
+          <th>Pedido<br>total</th>
+          <th class="left">Sugestão de transferência</th>
+          <th>Ainda<br>comprar</th>
+          <th>Sobra<br>CENTRAL</th>
+        </tr>
+      </thead>
+      <tbody id="distTbody">
+      </tbody>
+    </table>
+  </div>
+
+  <div class="dist-note">
+    <strong>Como usar (1.ª versão):</strong>
+    1) Indique o <em>excesso</em> de cada loja no campo “exc” (stock a mais que pode sair).
+    2) Clique <strong>Recalcular sugestões</strong> — o sistema propõe transferências do excesso para lojas com pedido.
+    3) <strong>Aplicar transferências à encomenda</strong> atualiza as quantidades da encomenda atual (reduz pedidos nas lojas que recebem transferência e coloca a sobra residual em CENTRAL, que continua a descontar do total).
+    A encomenda original e o cálculo de CENTRAL mantêm-se intactos.
+  </div>
+</div>
+
     <div class="empty" id="emptyState">
       <div class="ico">📦</div>
       <p>Selecione a categoria e o fornecedor, depois clique em <strong>Atualizar Encomenda</strong>.</p>
       <p style="margin-top:8px;font-size:12px">Os dados são agregados a partir dos mapas submetidos pelas seis lojas.</p>
     </div>
 
-    </div><!-- /viewEncomenda -->
+</div><!-- /viewEncomenda -->
 
     <!-- ========== VISTA: OPÇÕES / FORNECEDORES ========== -->
     <div id="viewOpcoes" style="display:none">
@@ -2436,6 +2653,296 @@ async function sair() {
 }
 
 /* Arranque */
+
+/* ============================================================
+   MAPA DE DISTRIBUIÇÃO (novo — NÃO altera funções existentes)
+   ============================================================ */
+const DIST_LOJAS = [
+  { key: "albarraque", short: "AL", label: "Albarraque" },
+  { key: "arneiro", short: "AM", label: "Arneiro" },
+  { key: "colares", short: "CO", label: "Colares" },
+  { key: "sintra", short: "LC", label: "Loja Sintra" },
+  { key: "memmartins", short: "MM", label: "Mem Martins" },
+  { key: "sabugo", short: "SA", label: "Sabugo" }
+];
+
+/** excesso manual por linha: { [idx]: { albarraque: n, ... } } */
+let distExcesso = {};
+
+function toggleMapaDistribuicao() {
+  const card = document.getElementById("mapaDistribuicao");
+  if (!card) return;
+  const open = !card.classList.contains("show");
+  if (open) {
+    distRender();
+    card.classList.add("show");
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    card.classList.remove("show");
+  }
+}
+
+function distGetPedido(linha, key) {
+  if (key === "central") return 0;
+  return Math.max(0, Number(linha.final[key]) || 0);
+}
+
+function distGetExcesso(idx, key) {
+  const row = distExcesso[idx] || {};
+  return Math.max(0, Number(row[key]) || 0);
+}
+
+function distSetExcesso(idx, key, val) {
+  if (!distExcesso[idx]) distExcesso[idx] = {};
+  distExcesso[idx][key] = Math.max(0, Number(val) || 0);
+}
+
+/**
+ * Algoritmo de transferência:
+ * - Fontes = lojas com excesso
+ * - Destinos = lojas com pedido (défice)
+ * - Esgota excesso nas fontes para cobrir destinos
+ * - Residual de excesso → CENTRAL
+ * - Pedido não coberto → ainda comprar
+ */
+function distCalcularLinha(linha, idx) {
+  const pedidos = {};
+  const excessos = {};
+  let pedidoTotal = 0;
+  let excessoTotal = 0;
+
+  DIST_LOJAS.forEach(l => {
+    const p = distGetPedido(linha, l.key);
+    const e = distGetExcesso(idx, l.key);
+    pedidos[l.key] = p;
+    excessos[l.key] = e;
+    pedidoTotal += p;
+    excessoTotal += e;
+  });
+
+  // Cópias mutáveis
+  const falta = { ...pedidos };
+  const disponivel = { ...excessos };
+  const transferencias = []; // { from, to, qty }
+
+  // Para cada destino com falta, consumir de fontes com disponível
+  DIST_LOJAS.forEach(dest => {
+    let precisa = falta[dest.key] || 0;
+    if (precisa <= 0) return;
+    DIST_LOJAS.forEach(orig => {
+      if (precisa <= 0) return;
+      if (orig.key === dest.key) return;
+      const disp = disponivel[orig.key] || 0;
+      if (disp <= 0) return;
+      const move = Math.min(precisa, disp);
+      if (move > 0) {
+        transferencias.push({ from: orig.short, to: dest.short, fromKey: orig.key, toKey: dest.key, qty: move });
+        disponivel[orig.key] -= move;
+        falta[dest.key] -= move;
+        precisa -= move;
+      }
+    });
+  });
+
+  const aindaComprar = DIST_LOJAS.reduce((s, l) => s + (falta[l.key] || 0), 0);
+  const sobraCentral = DIST_LOJAS.reduce((s, l) => s + (disponivel[l.key] || 0), 0);
+
+  return {
+    pedidos,
+    excessos,
+    pedidoTotal,
+    excessoTotal,
+    transferencias,
+    aindaComprar,
+    sobraCentral,
+    falta,
+    disponivel
+  };
+}
+
+function distTextoSugestao(calc) {
+  const parts = [];
+  calc.transferencias.forEach(t => {
+    parts.push(`<div class="t">Transferir ${t.qty} de ${t.from} → ${t.to}</div>`);
+  });
+  if (calc.sobraCentral > 0) {
+    parts.push(`<div class="c">Sobra residual ${calc.sobraCentral} → CENTRAL</div>`);
+  }
+  if (calc.aindaComprar > 0) {
+    parts.push(`<div class="f">Ainda comprar: ${calc.aindaComprar}</div>`);
+  } else if (calc.transferencias.length) {
+    parts.push(`<div class="t">✓ Coberto por transferências</div>`);
+  } else if (calc.pedidoTotal > 0) {
+    parts.push(`<div class="c">Sem excesso interno</div>`);
+    parts.push(`<div class="f">Comprar tudo: ${calc.pedidoTotal}</div>`);
+  } else {
+    parts.push(`<div class="c">—</div>`);
+  }
+  return parts.join("") || "—";
+}
+
+function distRender() {
+  const tbody = document.getElementById("distTbody");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+
+  let sumPedido = 0, sumExcesso = 0, sumComprar = 0, sumCentral = 0;
+  let n = 0;
+
+  if (!linhas || !linhas.length) {
+    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Sem linhas de encomenda. Atualize a encomenda primeiro.</td></tr>`;
+    distUpdateKpis(0,0,0,0);
+    return;
+  }
+
+  linhas.forEach((linha, idx) => {
+    if (linha.removed) return;
+    const rowTotal = typeof somarLinha === "function" ? somarLinha(linha) : 0;
+    // incluir linhas com pedido nas lojas mesmo se total for 0 por causa de central
+    const temPedidoLojas = DIST_LOJAS.some(l => distGetPedido(linha, l.key) > 0);
+    if (!temPedidoLojas && !linha.manual) return;
+
+    n++;
+    const calc = distCalcularLinha(linha, idx);
+    sumPedido += calc.pedidoTotal;
+    sumExcesso += calc.excessoTotal;
+    sumComprar += calc.aindaComprar;
+    sumCentral += calc.sobraCentral;
+
+    const cells = [];
+    cells.push(`<td class="left code">${esc(linha.codigo)}</td>`);
+    cells.push(`<td class="left">${esc(linha.artigo)}</td>`);
+
+    DIST_LOJAS.forEach(l => {
+      const p = calc.pedidos[l.key] || 0;
+      const e = calc.excessos[l.key] || 0;
+      const pCls = p > 0 ? "deficit" : "zero";
+      const pTxt = p > 0 ? p : "—";
+      cells.push(`<td>
+        <span class="dist-qty ${pCls}" title="Pedido">${pTxt}</span>
+        <input type="number" class="dist-input excess-in" min="0" step="1"
+          value="${e > 0 ? e : ""}"
+          placeholder="exc"
+          title="Excesso nesta loja (editável)"
+          data-idx="${idx}" data-loja="${l.key}"
+          onchange="distOnExcessoChange(this)">
+      </td>`);
+    });
+
+    cells.push(`<td style="font-weight:700">${calc.excessoTotal || ""}</td>`);
+    cells.push(`<td style="font-weight:700">${calc.pedidoTotal || ""}</td>`);
+    cells.push(`<td class="dist-sugestao">${distTextoSugestao(calc)}</td>`);
+    cells.push(`<td style="font-weight:700;color:${calc.aindaComprar > 0 ? "#e65100" : "#2e7d32"}">${calc.aindaComprar}</td>`);
+    cells.push(`<td style="font-weight:700;color:#1f6b33">${calc.sobraCentral || "0"}</td>`);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = cells.join("");
+    tbody.appendChild(tr);
+  });
+
+  if (n === 0) {
+    tbody.innerHTML = `<tr><td colspan="13" style="padding:20px;color:#888;">Nenhuma linha com quantidades nas lojas.</td></tr>`;
+  }
+  distUpdateKpis(sumPedido, sumExcesso, sumComprar, sumCentral);
+
+  // Mostrar botão na toolbar se houver dados
+  const btn = document.getElementById("btnMapaDist");
+  if (btn) btn.style.display = n > 0 || (linhas && linhas.length) ? "" : "none";
+}
+
+function distUpdateKpis(pedido, excesso, comprar, central) {
+  const el = id => document.getElementById(id);
+  if (el("distKpiPedido")) el("distKpiPedido").textContent = pedido;
+  if (el("distKpiExcesso")) el("distKpiExcesso").textContent = excesso;
+  if (el("distKpiComprar")) el("distKpiComprar").textContent = comprar;
+  if (el("distKpiCentral")) el("distKpiCentral").textContent = central;
+}
+
+function distOnExcessoChange(input) {
+  const idx = Number(input.dataset.idx);
+  const loja = input.dataset.loja;
+  distSetExcesso(idx, loja, input.value);
+  distRender();
+}
+
+function distRecalcular() {
+  distRender();
+  if (typeof showAlert === "function") showAlert("Sugestões recalculadas.", "ok");
+}
+
+function distPreencherExcessoZero() {
+  distExcesso = {};
+  distRender();
+  if (typeof showAlert === "function") showAlert("Excessos limpos.", "info");
+}
+
+/**
+ * Aplica o resultado à encomenda atual:
+ * - Reduz o final das lojas destino pelo que receberam (já coberto por transferência)
+ * - Na prática: o pedido residual (ainda comprar) fica nas lojas;
+ *   o que foi coberto por transferência sai do pedido dessas lojas.
+ * - Sobra residual vai para CENTRAL (continua a descontar do total).
+ *
+ * Implementação segura:
+ *   para cada linha, final[loja] = falta[loja]  (o que ainda precisa de compra)
+ *   final.central = (final.central || 0) + sobraCentral
+ * Assim o somarLinha existente mantém a regra CENTRAL desconta.
+ */
+function distAplicar() {
+  if (!linhas || !linhas.length) {
+    alert("Sem linhas de encomenda.");
+    return;
+  }
+  if (!confirm("Aplicar transferências à encomenda atual?\n\n• Pedidos das lojas passam a ser só o residual a comprar.\n• Sobra de excesso vai para CENTRAL (desconta do total, como hoje).\n\nPode gravar a encomenda a seguir.")) {
+    return;
+  }
+
+  let alteradas = 0;
+  linhas.forEach((linha, idx) => {
+    if (linha.removed) return;
+    const temPedido = DIST_LOJAS.some(l => distGetPedido(linha, l.key) > 0);
+    const temExcesso = DIST_LOJAS.some(l => distGetExcesso(idx, l.key) > 0);
+    if (!temPedido && !temExcesso) return;
+
+    const calc = distCalcularLinha(linha, idx);
+    // Atualizar finais das lojas = o que ainda falta comprar nessa loja
+    DIST_LOJAS.forEach(l => {
+      linha.final[l.key] = Math.max(0, calc.falta[l.key] || 0);
+    });
+    // Sobra residual → CENTRAL (soma ao que já lá estiver)
+    const centralAtual = Number(linha.final.central) || 0;
+    linha.final.central = centralAtual + (calc.sobraCentral || 0);
+    alteradas++;
+  });
+
+  // Re-render da encomenda (função existente) e do mapa
+  if (typeof renderTabela === "function") renderTabela();
+  distRender();
+  if (typeof showAlert === "function") {
+    showAlert("Transferências aplicadas a " + alteradas + " artigo(s). CENTRAL recebeu a sobra residual. Grave a encomenda se quiser guardar.", "ok");
+  }
+}
+
+// Mostrar botão quando a tabela de encomenda é renderizada
+(function distHookRender() {
+  const orig = window.renderTabela;
+  if (typeof orig === "function" && !orig._distHooked) {
+    window.renderTabela = function() {
+      orig.apply(this, arguments);
+      const btn = document.getElementById("btnMapaDist");
+      if (btn) {
+        const tem = linhas && linhas.some(l => !l.removed);
+        btn.style.display = tem ? "" : "none";
+      }
+      // Se o mapa estiver aberto, atualizar
+      const card = document.getElementById("mapaDistribuicao");
+      if (card && card.classList.contains("show")) distRender();
+    };
+    window.renderTabela._distHooked = true;
+  }
+})();
+
+
 init();
 carregarCadastroFornecedores(false);
 </script>
