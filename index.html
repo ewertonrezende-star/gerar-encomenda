@@ -1126,7 +1126,7 @@ table.dist-table tr:hover td { background: #f7faf8; }
     · <em>necessidade</em> = (Vendas 30 dias ÷ 30) × (lead time × 2) — a mesma regra do mapa das lojas.
     Quando a loja não precisa de comprar (necessidade coberta pelo stock), a sobra aparece aqui para transferir.
     Pode editar o campo <em>exc</em> manualmente (fica marcado a dourado). <strong>Recalcular</strong> volta aos valores automáticos.
-    <strong>Novo pedido</strong> = ainda comprar − sobra CENTRAL (o que fica a encomendar ao fornecedor). <strong>Aplicar</strong> grava isso na encomenda.
+    <strong>Novo pedido</strong> = residual lojas − sobra excesso − CENTRAL já na encomenda (CENTRAL desconta e não vai a compra). <strong>Aplicar</strong> grava na encomenda.
   </div>
 </div>
 
@@ -2954,13 +2954,18 @@ function distCalcularLinha(linha, idx) {
 
   const aindaComprar = DIST_LOJAS.reduce((s, l) => s + (falta[l.key] || 0), 0);
   const sobraCentral = DIST_LOJAS.reduce((s, l) => s + (disponivel[l.key] || 0), 0);
-  // Novo pedido = o que fica a encomendar ao fornecedor após usar excesso e
-  // colocar sobra em CENTRAL (CENTRAL desconta do total, regra atual).
-  const novoPedido = Math.max(0, aindaComprar - sobraCentral);
+  // CENTRAL já preenchido na encomenda (o utilizador não quer comprar estas un.)
+  const centralAtual = Math.max(0, Number(linha.final && linha.final.central) || 0);
+  // Pedido efetivo atual na encomenda = soma lojas − CENTRAL (regra somarLinha)
+  const pedidoEfetivoAtual = Math.max(0, pedidoTotal - centralAtual);
+  // Novo pedido após distribuição:
+  // residual lojas − sobra nova para CENTRAL − CENTRAL que já estava na linha
+  const novoPedido = Math.max(0, aindaComprar - sobraCentral - centralAtual);
 
   return {
     pedidos, excessos, pedidoTotal, excessoTotal,
-    transferencias, aindaComprar, sobraCentral, novoPedido, falta, disponivel, idxKey
+    transferencias, aindaComprar, sobraCentral, centralAtual,
+    pedidoEfetivoAtual, novoPedido, falta, disponivel, idxKey
   };
 }
 
@@ -2970,14 +2975,18 @@ function distTextoSugestao(calc) {
     parts.push(`<div class="t">Transferir ${t.qty} de ${t.from} → ${t.to}</div>`);
   });
   if (calc.pedidoTotal > 0) {
-    parts.push(`<div class="c">Pedido atual: ${calc.pedidoTotal}</div>`);
+    parts.push(`<div class="c">Pedido lojas: ${calc.pedidoTotal}</div>`);
+    if (calc.centralAtual > 0) {
+      parts.push(`<div class="c">CENTRAL já na encomenda: ${calc.centralAtual} (desconta)</div>`);
+      parts.push(`<div class="c">Pedido efetivo atual: ${calc.pedidoEfetivoAtual}</div>`);
+    }
     if (calc.aindaComprar > 0) {
-      parts.push(`<div class="f">Ainda comprar (lojas): ${calc.aindaComprar}</div>`);
+      parts.push(`<div class="f">Residual lojas: ${calc.aindaComprar}</div>`);
     } else if (calc.transferencias.length) {
       parts.push(`<div class="t">✓ Pedido coberto por transferências</div>`);
     }
     if (calc.sobraCentral > 0) {
-      parts.push(`<div class="c">Sobra ${calc.sobraCentral} → CENTRAL</div>`);
+      parts.push(`<div class="c">Sobra excesso ${calc.sobraCentral} → CENTRAL</div>`);
     }
     parts.push(`<div class="t"><strong>Novo pedido: ${calc.novoPedido}</strong></div>`);
   } else if (calc.excessoTotal > 0) {
