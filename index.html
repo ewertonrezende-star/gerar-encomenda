@@ -2284,12 +2284,9 @@ function atualizarQty(input) {
 
 /**
  * Total Unidades editável (arredondamento de compras).
- * Diferença (novo total − total calculado) é colocada em CENTRAL:
- *  - se aumentar o total: sobe CENTRAL (arredondamento a comprar fica em CENTRAL)
- *  - se diminuir: reduz CENTRAL primeiro, depois não força lojas
- * Assim o Nuno arredonda o total e o extra fica distribuído na CENTRAL.
- * Nota: somarLinha = lojas − CENTRAL; para o total editado ser respeitado no PDF
- * usamos totalOverride; ao gravar/aplicar o CENTRAL é ajustado para bater certo.
+ * A edição altera somente totalOverride, usado na encomenda/PDF/impressão.
+ * O stock do CC/Central e as quantidades das lojas permanecem intactos.
+ * Ao alterar uma quantidade de loja, atualizarQty limpa o override e recalcula o total.
  */
 function atualizarTotalEncomenda(input) {
   const idx = Number(input.dataset.idx);
