@@ -2028,7 +2028,8 @@ function aplicarEncomendaSalva(dadosBase, dadosSalvos) {
       orig: base ? { ...base.orig } : { ...zero },
       final: finalAtual,
       removed: Boolean(salva.removed),
-      manual: Boolean(salva.manual)
+      manual: Boolean(salva.manual),
+      totalOverride: salva.totalOverride != null ? Math.max(0, Number(salva.totalOverride) || 0) : null
     };
   }).filter(Boolean);
 
@@ -2065,7 +2066,8 @@ async function gravarEncomenda() {
         orig: linha.orig,
         final: linha.final,
         removed: Boolean(linha.removed),
-        manual: Boolean(linha.manual)
+        manual: Boolean(linha.manual),
+        totalOverride: linha.totalOverride != null ? Number(linha.totalOverride) : null
       })),
       atualizado_por: (perfil && perfil.nome) || "Gestão",
       updated_at: agora
@@ -2242,7 +2244,7 @@ function renderTabela() {
       <input type="number" class="qty total-edit${totalChanged ? " changed" : ""}" min="0" step="1"
         value="${totalMostrado > 0 ? totalMostrado : ""}"
         data-idx="${idx}"
-        title="Total a encomendar (editável para arredondar). A diferença vai para CENTRAL."
+        title="Total a encomendar (editável para arredondar). Não altera o stock do CC nem das lojas."
         onchange="atualizarTotalEncomenda(this)">
       ${totalChanged ? `<span class="orig">calc: ${rowTotal}</span>` : ""}
     </td>`);
@@ -2293,62 +2295,15 @@ function atualizarTotalEncomenda(input) {
   const idx = Number(input.dataset.idx);
   const linha = linhas[idx];
   if (!linha) return;
-  const novoTotal = Math.max(0, Number(input.value) || 0);
-  const totalCalc = somarLinha(linha);
-  const somaLojas = LOJAS.reduce((s, l) => {
-    if (l.key === "central") return s;
-    return s + (Number(linha.final[l.key]) || 0);
-  }, 0);
-  const centralAtual = Number(linha.final.central) || 0;
 
-  // Queremos: somaLojas − CENTRAL = novoTotal  →  CENTRAL = somaLojas − novoTotal
-  // Se novoTotal > somaLojas, não há como só com CENTRAL descontar: aí aumentamos
-  // CENTRAL negativamente não faz sentido. Nesse caso o arredondamento para CIMA
-  // significa comprar mais: metemos a diferença como pedido extra em CENTRAL? Não —
-  // CENTRAL desconta. Para comprar MAIS, o extra tem de ir para uma loja ou
-  // tratamos totalOverride como valor de compra e ajustamos:
-  //   total compra = novoTotal
-  //   se novoTotal >= totalCalc: diferença = arredondamento a mais → guardada em
-  //   linha.arredondamento e somada ao total mostrado; na distribuição o extra
-  //   fica em CENTRAL como stock a posicionar (não desconta além do que já desconta).
-  //
-  // Abordagem prática pedida: "distribuir o arredondamento" → a diferença sobe
-  // para CENTRAL como quantidade adicional a posicionar na central, e o total
-  // a comprar passa a ser o valor editado.
-  // Para somarLinha continuar a bater: se queremos total compra = T e
-  // somarLinha = lojas - central, precisamos lojas - central = T.
-  // Se T > lojas - central (arredondar para cima), reduzimos central (mín 0);
-  // se ainda não chega, o restante fica como totalOverride (compra acima do calc).
+  const novoTotal = Math.max(0, Number.parseInt(input.value, 10) || 0);
+  const totalCalculado = somarLinha(linha);
 
-  let novoCentral = centralAtual;
-  if (novoTotal <= totalCalc) {
-    // Arredondar para baixo ou igual: aumentar CENTRAL para descontar mais
-    // lojas - central = novoTotal → central = lojas - novoTotal
-    novoCentral = Math.max(0, somaLojas - novoTotal);
-    linha.final.central = novoCentral;
-    linha.totalOverride = null; // total volta a ser o calculado
-  } else {
-    // Arredondar para cima: comprar mais do que o calculado
-    // 1) Reduz CENTRAL a 0 para maximizar total
-    linha.final.central = 0;
-    const totalComCentralZero = somaLojas;
-    if (novoTotal <= totalComCentralZero) {
-      linha.final.central = Math.max(0, somaLojas - novoTotal);
-      linha.totalOverride = null;
-    } else {
-      // Ainda precisa de mais: a diferença fica como arredondamento a comprar
-      // e é atribuída à CENTRAL como "posição" mas sem descontar (totalOverride)
-      const extra = novoTotal - totalComCentralZero;
-      linha.final.central = 0;
-      linha.totalOverride = novoTotal;
-      linha.arredondamentoExtra = extra;
-      // O extra será visível no total; na prática compras encomenda o override
-    }
-  }
-  // Se igualou ao calculado após ajuste, limpa override
-  if (Math.abs(somarLinha(linha) - novoTotal) < 0.001 && !linha.arredondamentoExtra) {
-    linha.totalOverride = null;
-  }
+  // O total editável é apenas um ajuste da quantidade a encomendar.
+  // Não altera CENTRAL/CC nem qualquer quantidade das lojas.
+  linha.totalOverride = novoTotal === totalCalculado ? null : novoTotal;
+  linha.arredondamentoExtra = null;
+
   renderTabela();
 }
 
