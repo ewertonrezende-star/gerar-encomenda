@@ -2904,63 +2904,9 @@ function distPrepararDados() {
     });
   });
 
-  // 2) Artigos com excesso no mapa mas sem pedido na encomenda (para ver sobras)
-  const codigosNaEncomenda = new Set(
-    (linhas || []).filter(l => !l.removed).map(l => String(l.codigo).trim())
-  );
-  const extrasMap = new Map(); // codigo -> { artigo, excessos por loja }
-
-  CODIGOS_LOJAS.forEach(lojaRef => {
-    if (lojaRef.key === "central") return;
-    const lojaData = mapaAtual.lojas && mapaAtual.lojas[lojaRef.short];
-    if (!lojaData) return;
-    const vendas30Map = lojaData.vendas30 || {};
-    const stockSisMap = lojaData.stockVendas || {};
-    const respostas = lojaData.respostas || {};
-
-    // Códigos candidatos: vendas30 + rows das respostas
-    const codigos = new Set(Object.keys(vendas30Map));
-    Object.values(respostas).forEach(resp => {
-      if (resp && Array.isArray(resp.rows)) {
-        resp.rows.forEach(r => {
-          const c = String(r.c || "").trim();
-          if (c) codigos.add(c);
-        });
-      }
-    });
-
-    codigos.forEach(cod => {
-      if (codigosNaEncomenda.has(cod)) return;
-      const lookup = distLookupArtigoNoMapa(cod);
-      const info = lookup[lojaRef.key];
-      const exc = distCalcularExcessoAuto(info);
-      if (exc <= 0) return;
-
-      if (!extrasMap.has(cod)) {
-        let desc = "";
-        if (lojaData.descVendas && lojaData.descVendas[cod]) {
-          const d = lojaData.descVendas[cod];
-          desc = typeof d === "string" ? d : (d.descricao || d.desc || d.nome || "");
-        }
-        extrasMap.set(cod, {
-          codigo: cod,
-          artigo: desc || "Artigo com excesso",
-          orig: { central:0, albarraque:0, arneiro:0, colares:0, memmartins:0, sabugo:0, sintra:0 },
-          final: { central:0, albarraque:0, arneiro:0, colares:0, memmartins:0, sabugo:0, sintra:0 },
-          removed: false,
-          manual: false,
-          _extra: true
-        });
-      }
-      // guardar excesso
-      const idxKey = "extra:" + cod;
-      distSetExcesso(idxKey, lojaRef.key, exc, cod, false);
-    });
-  });
-
-  distLinhasExtra = Array.from(extrasMap.values()).sort((a, b) =>
-    a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
-  );
+  // O mapa de distribuição mostra exclusivamente artigos pertencentes
+  // à encomenda do fornecedor atualmente selecionado.
+  distLinhasExtra = [];
 }
 
 function distCalcularLinha(linha, idx) {
@@ -3102,11 +3048,8 @@ function distRender() {
 
   const todas = [];
   (linhas || []).forEach((linha, idx) => {
-    if (linha.removed) return;
+    if (linha.removed || totalLinhaEfetivo(linha) <= 0) return;
     todas.push({ linha, idx });
-  });
-  distLinhasExtra.forEach(linha => {
-    todas.push({ linha, idx: "extra:" + linha.codigo });
   });
 
   if (!todas.length) {
@@ -3117,8 +3060,8 @@ function distRender() {
 
   todas.forEach(({ linha, idx }) => {
     const calc = distCalcularLinha(linha, idx);
-    const temAlgo = calc.pedidoTotal > 0 || calc.excessoTotal > 0;
-    if (!temAlgo && !linha.manual) return;
+    // Só apresentar artigos que fazem parte do pedido deste fornecedor.
+    if (totalLinhaEfetivo(linha) <= 0) return;
 
     n++;
     sumPedido += calc.pedidoTotal;
